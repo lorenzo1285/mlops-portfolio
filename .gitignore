@@ -1,0 +1,110 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb_checkpoints
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Airflow (in addition to airflow/.gitignore)
+airflow/airflow.db*
+airflow/logs/
+airflow/standalone_admin_password.txt
+airflow/*.pid
+airflow/*.log
+airflow/airflow.cfg
+airflow/webserver_config.py
+airflow/output/
+
+# DVC
+.dvc/cache
+.dvc/tmp
+data/dvc-remote/
+
+# Compiled pipeline artifacts
+pipelines/kubeflow/pipeline.yaml
+
+# Numpy arrays (DVC-managed via stage outs)
+*.npy
+
+# Great Expectations
+great_expectations/gx/uncommitted/
+
+# Model artifacts (large binaries)
+*.pkl
+*.pth
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.joblib
+models/*.pkl
+models/*.pth
+models/*.h5
+
+# Data files (keep in DVC, not git)
+*.csv
+*.parquet
+*.feather
+*.xlsx
+*.xls
+data/raw/*.csv
+data/processed/*.csv
+!data/raw/*.csv.dvc
+
+# Environment and secrets
+.env
+.env.local
+*.secret
+secrets/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# OS-specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Documentation builds
+docs/_build/
+site/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp

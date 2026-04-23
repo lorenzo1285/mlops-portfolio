@@ -1,0 +1,27 @@
+[project]
+name = "mlops-portfolio"
+version = "0.1.0"
+description = "End-to-end MLOps portfolio: DVC + MLflow + Airflow + Kubeflow"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "jupyter",
+    "ipykernel>=7.2.0",
+    "pycaret>=3.3.2",
+    "torch>=2.11.0",
+    "mlflow>=3.10.1",
+    "apache-airflow>=2.8.0",
+    "apache-airflow-providers-papermill>=3.11.0",
+    "papermill>=2.7.0",
+    "dvc>=3.0",
+    "great-expectations>=1.0",
+    "kfp>=2.0",
+    "scipy>=1.11",
+    "pyyaml",
+    "joblib",
+]
