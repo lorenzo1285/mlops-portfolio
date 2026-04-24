@@ -1,0 +1,22 @@
+# Airflow-specific ignores
+airflow.db
+airflow.db-shm
+airflow.db-wal
+airflow.cfg
+webserver_config.py
+logs/
+standalone_admin_password.txt
+*.pid
+*.log
+
+# Output from Papermill
+output/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS
+.DS_Store
+Thumbs.db

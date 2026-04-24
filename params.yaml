@@ -1,9 +1,72 @@
+features:
+  columns:
+    - HOUR
+    - DAYOFWEEK
+    - MONTH
+    - YEAR
+    - WEATHER
+    - SURFCOND
+    - LIGHTING
+    - SPEEDLIMIT
+    - RDNUMLANES
+    - RDWIDTH
+    - ROUTECLASS
+    - TRUNKLINE
+    - RDSUBTYPE
+    - DRIVER1AGE
+    - DRIVER1SEX
+    - DRIVER2AGE
+    - DRIVER2SEX
+    - VEH1TYPE
+    - VEH1USE
+    - VEH2TYPE
+    - VEH2USE
+    - CRASHTYPE
+    - TRAFCTLDEV
+    - NONTRAFFIC
+  numeric_columns:
+    - HOUR
+    - YEAR
+    - SPEEDLIMIT
+    - RDNUMLANES
+    - RDWIDTH
+    - DRIVER1AGE
+    - DRIVER2AGE
+  ordinal_columns:
+    DAYOFWEEK:
+      - Monday
+      - Tuesday
+      - Wednesday
+      - Thursday
+      - Friday
+      - Saturday
+      - Sunday
+    MONTH:
+      - January
+      - February
+      - March
+      - April
+      - May
+      - June
+      - July
+      - August
+      - September
+      - October
+      - November
+      - December
+  target_column: CRASHSEVER
+  sentinel_columns:
+    - DRIVER1AGE
+    - DRIVER2AGE
+
 data:
   raw_path: data/raw/CGR_Crash_Data.csv
   processed_dir: data/processed/
-  test_size: 0.2
+  train_size: 0.70
+  val_size: 0.15
+  test_size: 0.15
   random_state: 42
-  sentinel_value: 999          # DRIVER1AGE/DRIVER2AGE → NaN
+  sentinel_value: 999
 
 model:
   class_weight_neg: 0.61

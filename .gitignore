@@ -1,16 +1,29 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.pyd
+*.so
+*.dylib
+*.dll
 build/
 dist/
 wheels/
 *.egg-info
+*.egg
 
 # Virtual environments
 .venv
 venv/
 env/
 ENV/
+
+# Python tooling cache
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.hypothesis/
+.dmypy.json
+dmypy.json
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -19,6 +32,18 @@ ENV/
 # MLflow
 mlruns/
 mlartifacts/
+mlflow-artifacts/
+
+# PyTorch & Deep Learning
+checkpoints/
+lightning_logs/
+runs/
+tensorboard/
+logs/tensorboard/
+*.pt.tar
+
+# Weights & Biases (if used)
+wandb/
 
 # Airflow (in addition to airflow/.gitignore)
 airflow/airflow.db*
@@ -62,8 +87,12 @@ models/*.h5
 *.feather
 *.xlsx
 *.xls
+*.tsv
+*.json.gz
+*.pickle
 data/raw/*.csv
 data/processed/*.csv
+data/processed/*.npy
 !data/raw/*.csv.dvc
 
 # Environment and secrets
@@ -82,6 +111,11 @@ secrets/
 .classpath
 .settings/
 
+# AI agent and tooling
+.claude/
+.agents/
+.specify/
+
 # OS-specific
 .DS_Store
 .DS_Store?
@@ -95,13 +129,36 @@ desktop.ini
 # Testing and coverage
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
 .tox/
 .nox/
+.benchmarks/
+coverage.xml
+*.cover
+
+# Profiling outputs
+*.prof
+*.lprof
+*.pstats
+profile_*.txt
+.prof/
 
 # Documentation builds
 docs/_build/
 site/
+
+# Kubernetes & Docker
+*.kubeconfig
+kubeconfig*.yaml
+*-secret.yaml
+docker-compose.override.yml
+.dockerignore.local
+
+# Logs
+logs/
+*.log
+log/
 
 # Temporary files
 *.tmp

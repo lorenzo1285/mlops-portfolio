@@ -1,27 +1,24 @@
 import os
 import sys
-import pandas as pd
-from src.utils import load_params
+
+from src.config import load_config
+from src.ingest.ingester import Ingester
 
 
-def main():
-    params = load_params()
-    input_path = os.getenv("INPUT_PATH", params["data"]["raw_path"])
-    output_path = os.getenv("OUTPUT_PATH", params["data"]["processed_dir"] + "raw.csv")
-
-    if not os.path.exists(input_path):
-        print(f"ERROR: Input file not found: {input_path}", file=sys.stderr)
-        sys.exit(1)
-
-    try:
-        df = pd.read_csv(input_path, low_memory=False)
-    except Exception as e:
-        print(f"ERROR: Could not read {input_path}: {e}", file=sys.stderr)
-        sys.exit(1)
+def main() -> None:
+    config = load_config()
+    input_path = os.getenv("INPUT_PATH", config.data.raw_path)
+    output_path = os.getenv("OUTPUT_PATH", config.data.processed_dir + "raw.csv")
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    df.to_csv(output_path, index=False)
-    print(f"Ingest complete: {len(df)} rows written to {output_path}")
+
+    try:
+        result = Ingester(input_path=input_path, output_path=output_path).run()
+    except FileNotFoundError:
+        print(f"ERROR: Input not found: {input_path}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Ingest: {result.row_count} rows written to {result.output_path}")
 
 
 if __name__ == "__main__":

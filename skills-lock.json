@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "skills": {
+    "airflow-dag-patterns": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "4dd93bbc245dbec9dd18504a82b864b5d70776ac8d8abd09b1796d299a3e627e"
+    },
+    "data-scientist": {
+      "source": "borghei/claude-skills",
+      "sourceType": "github",
+      "computedHash": "1c323bac7d8cad9369532847daf8a336127b889ad621b44eeeb27fa023dbc429"
+    },
+    "grill-me": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "computedHash": "daf64ca15f4fa081a6747766db538e2dbd1131725ed4fcdd3d538dc62c7035ba"
+    },
+    "improve-codebase-architecture": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "computedHash": "92ffd85a803661d754221f7aba260ee2065d3402eadf78872e227146fe1d6fbf"
+    },
+    "mlflow": {
+      "source": "davila7/claude-code-templates",
+      "sourceType": "github",
+      "computedHash": "92490db364058792bc478232dfa297c8dcd0697876800f4ca9ecec4d03e51a60"
+    },
+    "mlops-engineer": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "a095eb5b5bd592cb2a6323399ff594f383a3662a9a1ddfa1af05cfed1403c5d2"
+    },
+    "tdd": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "computedHash": "e4453d2f51a009f6b49876cc4d46ce452194c54ea931d4a552a0eb0e9dd24c27"
+    },
+    "ubiquitous-language": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "computedHash": "2c0bcf2a2ec84074e3129553de48a7fd4e0d2b1a219790890998f3790bf7fe9e"
+    }
+  }
+}
