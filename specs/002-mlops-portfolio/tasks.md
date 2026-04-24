@@ -20,7 +20,7 @@
 - [x] T003 [P] Create `params.yaml` at repo root with all sections: `features` (columns list, numeric_columns, ordinal_columns with explicit category orders for DAYOFWEEK and MONTH, target_column, sentinel_columns), `data` (train_size: 0.70, val_size: 0.15, test_size: 0.15, random_state, sentinel_value: 999), `model`, `dl` (includes `weight_decay: 1e-4` for L2 regularization via Adam), `mlflow`, `great_expectations`, `ab_test`, `feature_selection` (method: none, n_features, threshold), `tune` (katib_namespace, katib_experiment_name, n_trials, parallel_trials — search space bounds live in k8s/katib/*.yaml, not here) — values from research.md Decision 9
 - [x] T004 [P] Create `.dvcignore` excluding: `mlruns/`, `**/__pycache__/`, `**/*.pyc`, `.venv/`, `data/dvc-remote/`
 - [x] T005 [P] Create `src/__init__.py` and `src/<stage>/__init__.py` for all 8 stage packages: `ingest`, `validate`, `featurize`, `train_ml`, `train_dl`, `evaluate`, `tune`, `register`
-- [ ] T060 [P] Create `.gitattributes` at repo root: `*.py text eol=lf` and `*.sh text eol=lf` — enforces LF line endings for all Python and shell files when checked out on Windows, preventing CRLF issues in Linux Docker containers
+- [x] T060 [P] Create `.gitattributes` at repo root: `*.py text eol=lf` and `*.sh text eol=lf` — enforces LF line endings for all Python and shell files when checked out on Windows, preventing CRLF issues in Linux Docker containers
 
 **Checkpoint**: Directories exist, dependencies installed, params.yaml and .dvcignore in place.
 

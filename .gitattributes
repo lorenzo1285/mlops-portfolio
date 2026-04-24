@@ -1,0 +1,15 @@
+# Enforce LF line endings for Python and shell scripts
+# Prevents CRLF issues when files checked out on Windows are used in Linux Docker containers
+*.py text eol=lf
+*.sh text eol=lf
+
+# YAML files
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Markdown and docs
+*.md text eol=lf
+
+# DVC files
+*.dvc text eol=lf
+.dvcignore text eol=lf
