@@ -25,3 +25,8 @@ dependencies = [
     "pyyaml",
     "joblib",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

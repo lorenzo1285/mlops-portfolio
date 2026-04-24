@@ -98,3 +98,8 @@ ab_test:
   seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   alpha: 0.05
   tiebreak: ml
+
+feature_selection:
+  method: none  # one of: none, mutual_info, rfe, correlation, vif
+  n_features: 10  # used by supervised methods (mutual_info, rfe)
+  threshold: 0.95  # used by unsupervised methods (correlation, vif)

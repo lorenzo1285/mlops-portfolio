@@ -63,6 +63,13 @@ class ABTestConfig:
 
 
 @dataclass
+class FeatureSelectionConfig:
+    method: str = "none"  # one of: none, mutual_info, rfe, correlation, vif
+    n_features: int = 10  # used by supervised methods
+    threshold: float = 0.95  # used by unsupervised methods
+
+
+@dataclass
 class ValidationConfig:
     columns: dict[str, Any] = field(default_factory=dict)
 
@@ -75,6 +82,7 @@ class ProjectConfig:
     dl: DLConfig
     mlflow: MLflowConfig
     ab_test: ABTestConfig
+    feature_selection: FeatureSelectionConfig
     validation: ValidationConfig = field(default_factory=ValidationConfig)
 
 
@@ -94,6 +102,9 @@ def load_config(path: str | None = None) -> ProjectConfig:
         model=ModelConfig(**raw["model"]),
         dl=DLConfig(**raw["dl"]),
         mlflow=MLflowConfig(**raw["mlflow"]),
+        feature_selection=FeatureSelectionConfig(
+            **raw.get("feature_selection", {})
+        ),
         ab_test=ABTestConfig(**raw["ab_test"]),
         validation=ValidationConfig(
             columns=raw.get("validation", {}).get("columns", {})
