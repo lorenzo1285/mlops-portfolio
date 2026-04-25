@@ -10,8 +10,7 @@
 Build an eight-stage ML pipeline on the CGR crash dataset:
 `ingest → validate → featurize → train_ml → train_dl → evaluate → tune → register`
 
-`train_ml` uses PyCaret (`compare_models` + `tune_model`); `train_dl` uses a PyTorch
-shallow MLP (128→64→1). Both are tracked in MLflow. The `evaluate` stage runs an
+`train_ml` uses PyCaret (`compare_models` + `tune_model`); `train_dl` runs **EvoTorch NAS** to find the optimal MLP architecture, then trains the best architecture with **Adam** across N seeds. Both are tracked in MLflow. The `evaluate` stage runs an
 A/B test via `mlflow.evaluate()` on the shared held-out test set and declares a winner
 by macro F1. The winner is registered as `models:/crash-severity@champion`. The full
 pipeline is versioned with DVC, quality-gated with Great Expectations, and orchestrated
@@ -29,8 +28,8 @@ by both Apache Airflow and Kubeflow Pipelines (Docker Desktop Kubernetes).
 - `mlflow>=3.10.1` — experiment tracking and model registry (already in pyproject.toml)
 - `apache-airflow>=2.8.0` — local DAG orchestration (already in pyproject.toml)
 - `kfp>=2.0` — Kubeflow Pipelines SDK v2
-- `optuna>=3.0` — hyperparameter optimisation (TPE sampler, MLflow integration)
-- `optuna-integration[mlflow]` — MLflow callback for per-trial run logging
+- `evotorch>=0.5` — neural architecture search (NAS) via evolutionary strategies (SNES/PGPE)
+- `kubernetes>=28.0` — Katib Experiment submission and polling
 - `scikit-learn`, `pycaret>=3.3.2` — ML training (already in pyproject.toml)
 
 **Storage**:
@@ -82,8 +81,9 @@ by both Apache Airflow and Kubeflow Pipelines (Docker Desktop Kubernetes).
 | Grill-me pass completed and spec updated | ⚠️ PENDING | to be completed before implementation begins (constitution XIII) |
 | All `src/` code written test-first; boundary tests only | ⚠️ PENDING | TDD tasks added to tasks.md preceding each implementation task (constitution XIV, XV) |
 | No shallow modules introduced | ⚠️ PENDING | `src/utils.py` load_params() flagged for review; to be verified at feature close (constitution XIV) |
+| No ad-hoc data quality assertions in stage code or tests; boundary tests downstream of `validate` use `data/processed/raw.csv` | ⚠️ PENDING | T020 test fixture path and partial-params bug must be fixed before GREEN; T022 (Phase 3C) uses real `validate/run.py` — no stub (constitution XVI) |
 
-**Result**: Gates I–XI PASS. Gates XII–XV PENDING — must be resolved before `/speckit.implement` begins.
+**Result**: Gates I–XI PASS. Gates XII–XVI PENDING — must be resolved before `/speckit.implement` begins.
 
 ---
 
@@ -119,12 +119,12 @@ mlops-portfolio/
 │   ├── train_ml/
 │   │   └── run.py                # PyCaret compare+tune; autolog disabled; mlflow.evaluate(); save .pkl
 │   ├── train_dl/
-│   │   ├── run.py                # PyTorch ShallowMLP; BCEWithLogitsLoss; early stopping; save .pth
+│   │   ├── run.py                # EvoTorch NAS → best arch written to params.yaml; Adam training N seeds; BCEWithLogitsLoss; early stopping; save .pth
 │   │   └── pyfunc.py             # mlflow.pyfunc.PythonModel wrapper for ShallowMLP
 │   ├── evaluate/
 │   │   └── run.py                # mlflow.evaluate() A/B test; comparison table; assert gates
 │   ├── tune/
-│   │   └── run.py                # Optuna TPE search on winner; MLflowCallback per trial; write best_params to params.yaml
+│   │   └── run.py                # Submit Katib Experiment CRD; poll until Succeeded; read best trial params; write best_params to params.yaml
 │   └── register/
 │       └── run.py                # Promote winner; write models/registry_receipt.json
 │
@@ -200,8 +200,8 @@ under `data/processed/` and `models/` — both DVC-tracked, not git-tracked.
 - `docs/data_contract.md` defines column requirements from EDA; encoded in `params.yaml` under `validation.*`; GE expectations generated programmatically from params.
 - `register` stage writes `models/registry_receipt.json` as its DVC `outs`.
 - Concurrent orchestrator execution is not supported — one pipeline run at a time.
-- The `tune` stage runs Optuna TPE sampler with `MLflowCallback` — each trial = one MLflow run in `crash-severity-tune`. Search space for ML and DL defined in `params.yaml` under `tune.ml_search_space` / `tune.dl_search_space`. Best params written to `params.yaml` under `tune.best_params` after search.
-- For PyTorch, Optuna pruning halts unpromising trials early based on per-epoch validation loss, reducing total HPO time significantly.
+- The `tune` stage submits a Katib Experiment CRD to Kubernetes — each trial runs as a pod executing `src/tune/trial.py`; each trial = one MLflow run in `crash-severity-tune`. Search space defined in `k8s/katib/ml_experiment.yaml` and `k8s/katib/dl_experiment.yaml`. Best params written to `params.yaml` under `tune.best_params` after experiment completes.
+- For DL models, Katib searches training hyperparameters only (`lr`, `dropout`, `weight_decay`). The MLP architecture is fixed by the prior EvoTorch NAS run and written to `params.yaml` under `dl.best_arch`.
 - PyCaret `compare_models()` ~5–10 min/seed. Use `ab_test.seeds: [0,1,2]` during development.
 
 ## Complexity Tracking

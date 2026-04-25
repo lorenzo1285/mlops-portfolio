@@ -11,6 +11,11 @@
       "sourceType": "github",
       "computedHash": "1c323bac7d8cad9369532847daf8a336127b889ad621b44eeeb27fa023dbc429"
     },
+    "great-expectations": {
+      "source": "majesticlabs-dev/majestic-marketplace",
+      "sourceType": "github",
+      "computedHash": "80ab01ca418d61e7f604fa605028b92cc3970cf3bd4409993ccfb5901ef409cb"
+    },
     "grill-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",

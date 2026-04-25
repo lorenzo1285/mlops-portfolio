@@ -22,15 +22,18 @@
 
 | Term | Definition | Aliases to avoid |
 |------|------------|------------------|
-| **Experiment** | An MLflow named experiment grouping all runs of one model family (e.g. `crash-severity-ml`, `crash-severity-dl`). | "project", "trial group" |
+| **Experiment** | An MLflow named experiment grouping all runs of one model family (e.g. `crash-severity-ml`, `crash-severity-dl`, `crash-severity-tune`). | "project", "trial group" |
 | **Experiment Run** | A single training execution with logged parameters, metrics, and model artifact. Belongs to one experiment. Tagged with `seed=<value>` and `model_type`. | "training run", "MLflow run" |
-| **Training Loop** | The N-seed iteration inside `train_ml` or `train_dl` that produces one experiment run per seed. | "seed loop", "experiment loop" |
+| **Training Loop** | The N-seed Adam iteration inside `train_dl` (or compare loop in `train_ml`) that produces one experiment run per seed. Runs after NAS completes — uses the **Best Architecture** as a fixed input. | "seed loop", "experiment loop" |
+| **HPO Trial** | A single hyperparameter configuration evaluated as a Kubernetes pod during a **Katib Experiment**. Each trial logs one **Experiment Run** to MLflow under `crash-severity-tune`. | "Optuna trial", "tune run", "search iteration" |
+| **Katib Experiment** | A Kubernetes CRD submitted by the `tune` stage that defines the HPO search: objective metric, algorithm, search space, and trial template. Not to be confused with an MLflow **Experiment**. | "Katib job", "HPO experiment", "tune job" |
 
 ## Models & Artifacts
 
 | Term | Definition | Aliases to avoid |
 |------|------------|------------------|
-| **Model Artifact** | A serialised trained model file: `.pkl` for PyCaret ML, `.pth` for PyTorch MLP. DVC-tracked output of a training stage. | "model", "checkpoint" (reserve for intermediate `.pth` saves during training) |
+| **Model Artifact** | A serialised trained model file: `.pkl` for PyCaret ML, `.pth` for FlexMLP (contains `state_dict`, `input_dim`, `hidden_dims`). DVC-tracked output of a training stage. | "model", "checkpoint" (reserve for intermediate `.pth` saves during training) |
+| **FlexMLP** | The variable-depth PyTorch MLP whose layer configuration (hidden dims) is determined by NAS and stored in `dl.best_arch`; trained with Adam across N seeds. | "ShallowMLP" (retired), "PyTorch MLP", "DL model" |
 | **Registered Model** | A model artifact promoted to the MLflow Model Registry, identified by name and alias (e.g. `models:/crash-severity@champion`). | "deployed model", "production model" |
 | **Champion** | The alias assigned to the winning registered model version in the MLflow Model Registry. | "best model", "winner model" |
 | **Winner** | The model family (ML or DL) declared superior by the statistical A/B test, or the ML model by default when p ≥ 0.05. | "best model", "champion model" (champion is the registry alias, winner is the A/B test outcome) |
@@ -47,6 +50,16 @@
 | **Validation Split** | The 15% portion used exclusively for NAS/HPO fitness scoring and DL early stopping. Never used for final A/B test evaluation. | "dev set", "val data", "hold-out" |
 | **Test Split** | The 15% portion strictly reserved for the `evaluate` stage A/B test. Must never be seen during training, HPO, or NAS. | "test set", "held-out set" |
 
+## Neural Architecture Search
+
+| Term | Definition | Aliases to avoid |
+|------|------------|------------------|
+| **Neural Architecture Search (NAS)** | The EvoTorch-driven process of finding the optimal **FlexMLP** hidden layer configuration using an evolutionary strategy before Adam training begins. | "architecture optimisation", "hyperparameter search" (NAS searches structure, not training params) |
+| **Best Architecture** | The `list[int]` of hidden layer sizes found by NAS and written to `params.yaml` under `dl.best_arch`. Fixed for all subsequent Adam training seeds and Katib trials. | "optimal architecture", "found architecture", "hidden dims" (too vague) |
+| **Fitness Evaluation** | A quick Adam training run (fixed short epochs) followed by macro F1 scoring on the **Validation Split**, used by EvoTorch to assess a candidate architecture. | "trial training", "architecture evaluation", "fitness score" |
+| **Architecture Generation** | One iteration of the EvoTorch evolutionary strategy in which the entire candidate population is evaluated and updated. Equivalent to an "epoch" in the NAS context — do NOT use "epoch" for NAS iterations. | "epoch" (reserve for Adam training), "iteration", "round" |
+| **MLP Architecture** | The structural specification of a **FlexMLP**: the number of hidden layers and their sizes (e.g. `[128, 64]`). Distinct from training hyperparameters (lr, dropout, weight_decay). | "model architecture", "architecture" (always qualify as "MLP architecture" to avoid confusion with system architecture) |
+
 ## Statistical Evaluation
 
 | Term | Definition | Aliases to avoid |
@@ -58,8 +71,10 @@
 
 - An **ML Pipeline** is expressed as both a **DAG** (Airflow) and a **KFP Pipeline** (Kubeflow) — the same logical structure implemented twice.
 - A **Pipeline Stage** is implemented as a **Stage Script**, wrapped as an **Airflow Task**, and wrapped as a **KFP Component**.
-- A **Training Loop** produces N **Experiment Runs** inside one **Experiment**.
-- An **A/B Test** compares two **Experiments** and declares a **Winner**.
+- **NAS** runs once per `train_dl` stage execution and produces exactly one **Best Architecture**.
+- A **Training Loop** uses the **Best Architecture** as a fixed input and produces N **Experiment Runs** inside one **Experiment**.
+- A **Katib Experiment** runs N **HPO Trials**; each trial produces one **Experiment Run** in the `crash-severity-tune` **Experiment**.
+- An **A/B Test** compares two **Experiments** (`crash-severity-ml` vs `crash-severity-dl`) and declares a **Winner**.
 - The **Winner** is registered as the **Champion** **Registered Model**.
 
 ## Example Dialogue
@@ -68,14 +83,27 @@
 > **Domain expert:** "Always **pipeline stage** — 'step' is only acceptable inside the Kubeflow UI where the UI labels them that way."
 
 > **Dev:** "When we talk about the 'preprocessing pipeline' and the 'ML pipeline', which one do we mean when we say 'run the pipeline'?"
-> **Domain expert:** "Always the **ML Pipeline** — the seven-stage ingest-to-register flow. The **Preprocessing Pipeline** is an artifact produced by the featurize stage, never something you 'run' directly."
+> **Domain expert:** "Always the **ML Pipeline** — the eight-stage ingest-to-register flow. The **Preprocessing Pipeline** is an artifact produced by the featurize stage, never something you 'run' directly."
 
 > **Dev:** "The A/B test declares a winner. Is that the same as the champion in the registry?"
 > **Domain expert:** "No — **winner** is the A/B test outcome (the better model family). **Champion** is the MLflow Model Registry alias assigned to the best-seed **model artifact** from the winning family. You can have a winner without a champion if registration fails."
+
+> **Dev:** "When does NAS run, and how many times? Once per seed?"
+> **Domain expert:** "Once per `train_dl` stage execution — not per seed. NAS finds the **Best Architecture** first, then the **Training Loop** trains that fixed architecture across all N seeds. The **MLP Architecture** is an input to the training loop, not an output."
+
+> **Dev:** "What's the difference between an architecture generation and a training epoch?"
+> **Domain expert:** "An **architecture generation** is one EvoTorch evolutionary step during NAS — the whole population of candidate architectures gets evaluated and updated. An **epoch** is one pass over the training data during Adam weight optimisation. Never use 'epoch' to describe NAS iterations."
+
+> **Dev:** "The Katib Experiment runs trials. Are those the same as MLflow experiment runs?"
+> **Domain expert:** "Related but distinct. A **Katib Experiment** is a Kubernetes CRD — it orchestrates N **HPO Trials**, each running as a pod. Each **HPO Trial** logs one **Experiment Run** to the `crash-severity-tune` MLflow **Experiment**. Don't call a Katib trial an 'experiment run' — an experiment run is the MLflow entry."
 
 ## Flagged Ambiguities
 
 - **"pipeline"** appeared in three distinct senses: the full ML Pipeline, the sklearn Preprocessing Pipeline, and (in the KFP context) the KFP Pipeline. Always qualify: **ML Pipeline**, **Preprocessing Pipeline**, **KFP Pipeline**.
 - **"run"** was used for both an **Experiment Run** (MLflow) and a pipeline execution. Use "pipeline run" for the latter and "experiment run" for MLflow.
 - **"model"** was used for both a **Model Artifact** (file on disk) and a trained model object in memory. Use "model artifact" when referring to serialised files.
-- **"task"** appears in two unrelated contexts: **Airflow Task** (DAG node) and implementation task (T001–T057 in tasks.md). These are distinct — no abbreviation should be used for either.
+- **"task"** appears in two unrelated contexts: **Airflow Task** (DAG node) and implementation task (T001–T075 in tasks.md). These are distinct — no abbreviation should be used for either.
+- **"architecture"** appears in two unrelated senses: **MLP Architecture** (hidden layer sizes of a FlexMLP) and system/software architecture (the MLOps toolchain design). Always qualify as "MLP architecture" when referring to layer configuration.
+- **"epoch"** must only refer to one pass over training data during Adam weight optimisation. It must NOT be used for NAS iterations — use **architecture generation** instead.
+- **"experiment"** is now overloaded: an MLflow **Experiment** (a named run group) vs. a **Katib Experiment** (a Kubernetes CRD). Always qualify with "MLflow" or "Katib" when the context is not unambiguous.
+- **"ShallowMLP"** is retired. The canonical term is **FlexMLP**. Any reference to "ShallowMLP" in documentation or code comments should be updated.

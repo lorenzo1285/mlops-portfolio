@@ -4,7 +4,7 @@
 **Created**: 2026-04-22
 **Status**: Draft
 **Input**: User description: "MLOps learning portfolio built on the crash severity use case, covering DVC, Great Expectations, MLflow, Apache Airflow, and Kubeflow Pipelines. Eight pipeline stages: ingest → validate → featurize → train_ml → train_dl → evaluate → tune → register. ML model via PyCaret, DL model via PyTorch MLP. Evaluate runs A/B test and selects the winner. Tune runs Optuna hyperparameter optimisation on the winning model family, with every trial tracked in MLflow. All stages script-based, containerised, orchestrated by both Airflow and Kubeflow."
-**Last amended**: 2026-04-23 — added tune stage (Optuna HPO), sequential execution, grill-me decisions applied
+**Last amended**: 2026-04-24 — added Principle XVI assumption (GE as exclusive quality assertion layer; downstream test fixtures must use data/processed/raw.csv)
 
 ---
 
@@ -89,7 +89,7 @@ stage halts the pipeline and names every violated expectation in its output repo
 
 ### User Story 3 — ML vs DL Statistical A/B Test and Model Registry (Priority: P3)
 
-As a learner, I can train both a PyCaret ML model and a PyTorch MLP model repeatedly
+As a learner, I can train both a PyCaret ML model and an EvoTorch NAS + Adam MLP model repeatedly
 across N different random seeds, track every run in MLflow, and then run a rigorous
 statistical A/B test (Welch's t-test on the distribution of test-set macro F1 scores)
 to determine which model family is significantly better. The winner is registered in the
@@ -116,8 +116,8 @@ for the constitutional performance gates.
 2. **Given** the `train_dl` stage completes with N seeds,
    **When** the learner opens the MLflow UI,
    **Then** exactly N runs appear in experiment `crash-severity-dl`, each tagged with
-   its seed value, with per-epoch `ein_loss`/`eout_loss` and final `eout_macro_f1`
-   logged.
+   its seed value, with the EvoTorch-found architecture logged as params, per-epoch
+   `ein_loss`/`eout_loss`/`gap_f1` from Adam training, and final `eout_macro_f1` logged.
 
 3. **Given** both training stages have produced N runs each,
    **When** the `evaluate` stage runs,
@@ -141,17 +141,18 @@ for the constitutional performance gates.
 
 ---
 
-### User Story 3b — Hyperparameter Optimisation with Optuna (Priority: P3b)
+### User Story 3b — Hyperparameter Optimisation with Katib (Priority: P3b)
 
 As a learner, after the A/B test has declared a winning model family, I can run a
-systematic Bayesian hyperparameter search using Optuna on that winner. Every trial is
-logged as a separate MLflow run so I can compare the full search history in the UI.
-The best hyperparameters are written back to `params.yaml` and DVC-tracked, and the
-final model is retrained with optimal parameters before registration.
+systematic Bayesian hyperparameter search using **Katib** on that winner. Every trial
+runs as a Kubernetes pod and is logged as a separate MLflow run so I can compare the
+full search history in the UI. The best hyperparameters are written back to `params.yaml`
+and DVC-tracked, and the final model is retrained with optimal parameters before registration.
 
 **Why this priority**: A single training run with default hyperparameters is not a
-production-quality model. Optuna + MLflow demonstrates that model selection and model
-optimisation are distinct, trackable steps — a key portfolio differentiator.
+production-quality model. Katib + MLflow demonstrates that model selection and model
+optimisation are distinct, trackable steps running in a real Kubernetes environment —
+a key portfolio differentiator.
 
 **Independent Test**: Run `dvc repro tune` after evaluate completes; confirm N trial
 runs appear in the `crash-severity-tune` MLflow experiment, each tagged with trial
@@ -163,8 +164,9 @@ metric from the A/B test.
 
 1. **Given** the evaluate stage has declared a winner (ML or DL),
    **When** the tune stage runs,
-   **Then** Optuna runs N trials using Bayesian optimisation (TPE sampler) on the
-   winning model family's hyperparameter search space.
+   **Then** a Katib Experiment CRD is submitted to Kubernetes and N trials run as pods
+   using Bayesian optimisation on the winning model family's hyperparameter search space
+   (defined in `k8s/katib/ml_experiment.yaml` or `k8s/katib/dl_experiment.yaml`).
 
 2. **Given** a tune trial completes,
    **When** the learner opens the MLflow UI,
@@ -172,7 +174,7 @@ metric from the A/B test.
    `trial=<n>` and all hyperparameter values logged as params.
 
 3. **Given** all N trials complete,
-   **When** Optuna selects the best trial,
+   **When** Katib selects the best trial,
    **Then** the best hyperparameters are written to `params.yaml` under `tune.best_params`
    and DVC detects the param change and invalidates downstream stages.
 
@@ -298,11 +300,15 @@ to the configured output path.
   tagged with `seed=<value>`. Each run MUST log `eout_macro_f1`, `eout_minority_recall`,
   `ein_macro_f1`, and `generalisation_gap` via `mlflow.evaluate()`. `mlflow.sklearn.autolog()`
   MUST be disabled. The best-seed model artifact MUST be saved to `models/best_ml_model.pkl`.
-- **FR-004b**: The `train_dl` stage MUST train a **PyTorch** shallow MLP N times (one
-  run per seed), logging each run in `crash-severity-dl` with per-epoch
-  `ein_loss`/`eout_loss`/`gap_f1`. Final `eout_macro_f1` and `eout_minority_recall`
-  MUST be logged via `mlflow.evaluate()` using a `mlflow.pyfunc` wrapper defined in
-  `src/train_dl/pyfunc.py`. The best-seed checkpoint MUST be saved to `models/mlp_model.pth`.
+- **FR-004b**: The `train_dl` stage MUST first run **EvoTorch** neural architecture search
+  (NAS) to find the optimal MLP hidden layer configuration from the search space defined
+  in `dl.evo.*` in `params.yaml`. The found architecture MUST be written to `params.yaml`
+  under `dl.best_arch` so DVC tracks it. The best architecture MUST then be trained N
+  times (one run per seed in `ab_test.seeds`) using the **Adam** optimizer, logging each
+  run in `crash-severity-dl` with the found architecture as params, per-epoch
+  `ein_loss`/`eout_loss`/`gap_f1`, and final `eout_macro_f1`/`eout_minority_recall` via
+  `mlflow.evaluate()` using a `mlflow.pyfunc` wrapper in `src/train_dl/pyfunc.py`.
+  The best-seed checkpoint MUST be saved to `models/mlp_model.pth`.
 - **FR-004c**: The `train_ml` and `train_dl` stages MUST be independent DVC stages with
   no dependency between them — both depend only on `featurize` outputs. They are executed
   sequentially (not in parallel) to avoid resource contention on a single-machine
@@ -336,19 +342,21 @@ to the configured output path.
 - **FR-011**: Any individual pipeline stage MUST be runnable in isolation as a standalone
   Docker container (`docker run`) given its declared inputs are available, independent
   of the orchestrator.
-- **FR-012**: A `tune` stage MUST run **Optuna** hyperparameter optimisation on the
-  winning model family declared by `evaluate`. The search MUST use the TPE sampler
-  (Bayesian optimisation). Each trial MUST be logged as a separate MLflow run in
-  `crash-severity-tune` tagged with `trial=<n>`, `model_type=<winner>`, and all
-  hyperparameter values as MLflow params. The best trial's hyperparameters MUST be
-  written to `params.yaml` under `tune.best_params` so DVC detects the change and
-  invalidates downstream stages.
-- **FR-012b**: The `tune` stage search space MUST be defined in `params.yaml` under
-  `tune.ml_search_space` (for PyCaret) and `tune.dl_search_space` (for PyTorch), so
-  the search space is versioned alongside the code and modifiable without script changes.
-- **FR-012c**: For PyTorch models, Optuna MUST use the `PyTorchLightningPruningCallback`
-  (or equivalent) to prune unpromising trials early based on validation loss, reducing
-  total search time.
+- **FR-012**: A `tune` stage MUST run **Katib** hyperparameter optimisation on the
+  winning model family declared by `evaluate`. The search MUST use Bayesian optimisation
+  (Katib `bayesianoptimization` algorithm). Each trial runs as a Kubernetes pod executing
+  `src/tune/trial.py` and logs a separate MLflow run in `crash-severity-tune` tagged with
+  `trial=<n>`, `model_type=<winner>`, and all hyperparameter values as MLflow params.
+  The best trial's hyperparameters MUST be written to `params.yaml` under `tune.best_params`
+  so DVC detects the change and invalidates downstream stages.
+- **FR-012b**: The Katib Experiment search space MUST be defined in
+  `k8s/katib/ml_experiment.yaml` and `k8s/katib/dl_experiment.yaml` — not in `params.yaml`.
+  `params.yaml` stores only Katib metadata (`katib_namespace`, `katib_experiment_name`,
+  `n_trials`, `parallel_trials`) and the winning `tune.best_params` after the experiment
+  completes.
+- **FR-012c**: For DL models, the Katib DL Experiment MUST search training hyperparameters
+  only: `lr`, `dropout`, and `weight_decay`. The MLP architecture (hidden dims) is
+  determined by the prior EvoTorch NAS run and is NOT part of the Katib search space.
 
 ### Key Entities
 
@@ -439,6 +447,13 @@ to the configured output path.
   — direct `yaml.safe_load` dict access in stage scripts is prohibited.
 - All stages call `mlflow.set_tracking_uri(config.mlflow.tracking_uri)` using the
   absolute path from `params.yaml` before any MLflow operation.
+- GE is the exclusive data quality assertion layer (Principle XVI): no pipeline stage
+  code and no test code may contain ad-hoc data quality assertions (manual null checks,
+  range comparisons, cardinality assertions) outside the GE expectation suite. If a new
+  quality requirement surfaces during implementation it is added to
+  `params.yaml → validation.columns` and enforced via GE. Boundary tests for all stages
+  downstream of `validate` use `data/processed/raw.csv` (the ingest output) as their
+  real-data fixture — not `data/raw/CGR_Crash_Data.csv`.
 - Kubeflow Pipelines components mount the entire project root via a single hostPath
   PVC at `/app`, sharing `mlruns/`, `data/`, `models/`, `.dvc/cache/`, and `params.yaml`
   with the host and across all pods.

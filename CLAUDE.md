@@ -68,7 +68,7 @@ Each stage: `<stage>/run.py` (thin entry point) + `<stage>/<module>.py` (busines
 | validate | `validator.py` → `DataValidator` | GE expectations from params; halt on failure; write Data Docs |
 | featurize | `featurizer.py` → `Featurizer` | 3-way split; 3-group encoding; optional feature selection; sample complexity gate |
 | train_ml | `trainer.py` → `MLTrainer` | PyCaret N seeds; autolog disabled; `mlflow.evaluate()`; save `.pkl` |
-| train_dl | `trainer.py` → `DLTrainer` | PyTorch ShallowMLP N seeds; Dropout + L2; `mlflow.evaluate()` via pyfunc; save `.pth` |
+| train_dl | `trainer.py` → `DLTrainer` | EvoTorch NAS → best arch; Adam N seeds; Dropout + L2; `mlflow.evaluate()` via pyfunc; save `.pth` |
 | evaluate | `evaluator.py` → `ABEvaluator` | Welch's t-test on macro F1 distributions; assert constitutional gates |
 | tune | `tuner.py` → `HyperparamTuner` | Submit Katib Experiment; poll completion; read best trial params |
 | register | `registrar.py` → `ModelRegistrar` | Promote champion to MLflow registry; write `registry_receipt.json` |
@@ -85,12 +85,69 @@ Optional `FeatureSelector` runs after preprocessing, fits on X_train only. Metho
 - `correlation` / `vif` — unsupervised collinearity reduction
 - `none` — pass-through (default)
 
-### DL Regularization
+### DL Architecture & Training
 
-`ShallowMLP`: Linear(d,128)→BN→ReLU→Dropout→Linear(128,64)→BN→ReLU→Dropout→Linear(64,1)
-- Dropout rate: `dl.dropout` in params.yaml (tunable)
-- L2 weight decay: `Adam(weight_decay=dl.weight_decay)` in params.yaml (tunable)
+**EvoTorch NAS** (architecture search, runs once before seed loop):
+- Search space: `dl.evo.*` in params.yaml — hidden dim range, layer count range, algorithm (SNES/PGPE)
+- Fitness function: quick Adam train (10 epochs) + macro F1 on val
+- Best architecture written to `dl.best_arch` in params.yaml
+
+**FlexMLP** (variable-depth, architecture from NAS):
+- Linear(d,h₁)→BN→ReLU→Dropout → … → Linear(hₙ,1) where [h₁…hₙ] = `dl.best_arch`
+- Dropout rate: `dl.dropout` in params.yaml (tunable via Katib)
+- L2 weight decay: `Adam(weight_decay=dl.weight_decay)` in params.yaml (tunable via Katib)
 - Early stopping: patience from `dl.patience` on val loss
+
+### GE Layer Architecture (`great_expectations/gx/utils/`)
+
+The validate stage uses a three-class utility layer with distinct responsibilities. All classes wrap GE v1 (`FileDataContext`) and work exclusively with pandas DataFrames.
+
+```
+params.yaml (validation.columns)
+        │
+        ▼
+GEContextBuilder          — INFRASTRUCTURE LAYER (great_expectations/gx/utils/ge_context_builder.py)
+  └── build()             — initialises FileDataContext; creates datasource + dataframe asset
+                            only; NO suite creation, NO expectation logic
+        │
+        ▼
+GEManager                 — SUITE + PREPARATION LAYER (great_expectations/gx/utils/ge_manager.py)
+  ├── build_suite()       — iterates ColumnContract objects; generates ExpectationSuite;
+  │                         for range checks uses row_condition per sentinel_value to
+  │                         exclude sentinels explicitly (no _RANGE_MOSTLY global tolerance);
+  │                         calls context.suites.add_or_update(suite)
+  └── select_asset_and_suite() → set_batch_definition() → pre_validate(df)
+                            — binds to the built suite; creates BatchDefinition in context;
+                              sanity-checks df (non-empty, all expected columns present)
+        │
+        ▼
+GECheckpointRunner        — EXECUTION LAYER (great_expectations/gx/utils/ge_checkpoint_runner.py)
+  └── run(df)             — reads the BatchDefinition GEManager registered; builds/updates
+                            a Checkpoint with UpdateDataDocsAction +
+                            StoreValidationResultAction; calls checkpoint.run(dataframe=df);
+                            parses result → returns CheckpointRunResult(success,
+                            failed_expectations, data_docs_path)
+        │
+        ▼
+UpdateDataDocsAction      — fires automatically inside the Checkpoint; renders HTML
+                            to great_expectations/gx/uncommitted/data_docs/
+```
+
+**GEContextBuilder** — infrastructure only. `build()` initialises the GE `FileDataContext`, creates the datasource, and creates the empty dataframe asset. No suite creation, no expectation logic, no `_RANGE_MOSTLY`.
+
+**GEManager** — suite construction + preparation layer. `build_suite(suite_name, asset_name, datasource_name)` generates the `ExpectationSuite` from `ColumnContract` objects:
+- `ExpectColumnValuesToNotBeNull` — always generated; uses `contract.mostly` for per-column null tolerance
+- `ExpectColumnValuesToBeBetween` — generated when `min`/`max` set; if `contract.sentinel_values` is non-empty, adds a `row_condition` per sentinel to exclude those rows explicitly (no global `mostly` tolerance); if no sentinels, strict (no `mostly`)
+- `ExpectColumnValuesToBeInSet` — generated when `allowed_values` set
+Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(df)` prepares the context for execution.
+
+**GECheckpointRunner** — execution layer. Constructor + `run(df)` only. Reads the `BatchDefinition` GEManager registered in context; wires a GE v1 `Checkpoint` with `UpdateDataDocsAction` and `StoreValidationResultAction`; calls `checkpoint.run()`; parses `result.run_results` to extract failed expectation names; returns `CheckpointRunResult`. Data Docs are generated automatically by the action.
+
+**DataValidator** (`src/validate/validator.py`) is the pipeline-facing class. Its `validate(df)` method orchestrates all three: `GEContextBuilder.build()` → `GEManager.build_suite()` → `GEManager` preparation → `GECheckpointRunner(...).run(df)` → returns `ValidationResult`.
+
+**Pipeline order**: validate runs on `data/raw/CGR_Crash_Data.csv` (before ingest). If validation passes, `run.py` writes `data/processed/.validation_passed` and exits 0. Ingest is gated on that sentinel.
+
+**Data contract source of truth**: `docs/data_contract.md` (human-readable) and `params.yaml` `validation.columns` (machine-readable). The GE suite is always regenerated from `params.yaml` — the persisted `expectations/` JSON is a DVC-tracked artefact, not edited by hand.
 
 ### Katib HPO
 
@@ -106,17 +163,21 @@ Optional `FeatureSelector` runs after preprocessing, fits on X_train only. Metho
 - `src/config.py` — typed dataclasses: `FeaturesConfig`, `DataConfig`, `ModelConfig`, `DLConfig`, `MLflowConfig`, `ABTestConfig`, `ValidationConfig`, `FeatureSelectionConfig`, `TuneConfig`; `load_config()` reads `PARAMS_PATH` env var
 - `src/metrics.py` — `make_eval_dataset()` helper for `mlflow.evaluate()`
 - `src/featurize/selector.py` — `FeatureSelector` class; `fit(X, y, feature_names)` + `transform(X) → (X, SelectionResult)`
-- `src/train_dl/pyfunc.py` — `ShallowMLPWrapper(mlflow.pyfunc.PythonModel)` for PyTorch evaluation
+- `src/train_dl/pyfunc.py` — `FlexMLPWrapper(mlflow.pyfunc.PythonModel)` for PyTorch evaluation; loads variable-depth FlexMLP from checkpoint
+- `great_expectations/gx/utils/ge_context_builder.py` — `GEContextBuilder`; infrastructure only; `build()` creates datasource + dataframe asset; no suite logic
+- `great_expectations/gx/utils/ge_manager.py` — `GEManager`; suite construction + preparation; `build_suite()` generates `ExpectationSuite` from `ColumnContract` objects using `row_condition` for sentinel exclusion (no `_RANGE_MOSTLY`); `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(df)` binds context and sanity-checks DataFrame
+- `great_expectations/gx/utils/ge_checkpoint_runner.py` — `GECheckpointRunner`; execution layer; `run(df)` uses the `BatchDefinition` registered by `GEManager`, builds a GE Checkpoint with `UpdateDataDocsAction` + `StoreValidationResultAction`, returns `CheckpointRunResult`
 - `src/tune/trial.py` — per-trial CLI entrypoint for Katib; accepts hyperparams as argparse args
 
 ### Key Files
 
 - `params.yaml` — all pipeline parameters; `features.*`, `data.*`, `dl.*` (includes `weight_decay`), `feature_selection.*`, `tune.*` (Katib metadata only — no search space bounds)
 - `dvc.yaml` — 8-stage pipeline DAG with `deps`/`outs`/`params`
-- `docs/data_contract.md` — column-level data requirements (EDA-driven)
 - `UBIQUITOUS_LANGUAGE.md` — canonical domain term glossary (constitution XII)
-- `.specify/memory/constitution.md` — v2.6.0, 15 non-negotiable principles
-- `great_expectations/gx/` — GE v1 context; expectations generated programmatically from params
+- `.specify/memory/constitution.md` — v2.7.1, 16 non-negotiable principles
+- `great_expectations/gx/` — GE v1 file context root; suite in `expectations/`; HTML report in `uncommitted/data_docs/`
+- `great_expectations/gx/utils/` — GE utility layer: `ge_context_builder.py` (infrastructure: datasource + asset) → `ge_manager.py` (suite construction + preparation: build_suite, asset binding, BatchDefinition, pre-checks) → `ge_checkpoint_runner.py` (execution via GE Checkpoint)
+- `docs/data_contract.md` — human-readable column contract (dtype, ranges, null rates, sentinels)
 - `models/registry_receipt.json` — DVC output of register stage
 - `k8s/pvc.yaml` — hostPath PVC mounting project root at `/app` for all KFP pods
 - `k8s/katib/ml_experiment.yaml` — Katib Experiment CRD for ML HPO (search space + trial template)
@@ -131,7 +192,7 @@ Optional `FeatureSelector` runs after preprocessing, fits on X_train only. Metho
 - `specs/002-mlops-portfolio/` — active MLOps portfolio spec (design phase)
   - `spec.md` — feature spec (grill-me reviewed 2026-04-23)
   - `plan.md` — implementation plan
-  - `tasks.md` — T001–T075; T001–T010 complete; T011–T075 pending
+  - `tasks.md` — T001–T079; T001–T019, T027–T028 complete; T020–T026, T029–T079 pending
 
 ## MLflow Conventions
 
@@ -158,8 +219,9 @@ Optional `FeatureSelector` runs after preprocessing, fits on X_train only. Metho
 - **XIII** Grill-me pass before any spec is finalised
 - **XIV** Deep module architecture — small interfaces (constructor + 1 public method), large implementation; boundary tests only
 - **XV** TDD for all `src/` code — red→green→refactor, vertical slices only
+- **XVI** GE is the exclusive data quality assertion layer — no ad-hoc checks in stage code or tests; boundary tests downstream of `validate` use `data/processed/raw.csv`, not `data/raw/`
 
-Constitution version: **v2.6.0** (last amended 2026-04-23)
+Constitution version: **v2.7.1** (last amended 2026-04-24)
 
 ## Design Rules (session-established)
 
