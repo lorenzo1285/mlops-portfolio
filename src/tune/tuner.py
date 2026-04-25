@@ -15,17 +15,16 @@ class TuneResult:
 
 
 class HyperparamTuner:
-    """Optuna TPE search on the winning model family with MLflow per-trial logging.
+    """Katib Bayesian HPO on the winning model family with MLflow per-trial logging.
 
-    Each trial is one MLflow run in the crash-severity-tune experiment.
-    Search space is read from params.yaml under tune.ml_search_space or
-    tune.dl_search_space depending on winner. Pruning halts unpromising
-    DL trials early based on per-epoch val loss.
+    Submits a Katib Experiment CRD to Kubernetes; each trial runs as a pod
+    executing src/tune/trial.py. Search space is defined in k8s/katib/*.yaml.
+    For DL models, the MLP architecture is fixed by the prior EvoTorch NAS run.
 
     Public interface
     ----------------
     tune(X_train, y_train, X_val, y_val) → TuneResult
-        Runs n_trials Optuna trials; best params written back to params.yaml.
+        Submits Katib Experiment; polls until Succeeded; returns best params.
     """
 
     def __init__(self, mlflow_config, tune_config, winner: str) -> None:

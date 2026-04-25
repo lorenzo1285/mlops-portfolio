@@ -7,6 +7,7 @@ import numpy as np
 
 @dataclass
 class DLTrainResult:
+    best_hidden_dims: list[int]
     run_ids: list[str]
     best_run_id: str
     mean_macro_f1: float
@@ -15,11 +16,11 @@ class DLTrainResult:
 
 
 class DLTrainer:
-    """PyTorch ShallowMLP multi-seed training with MLflow tracking.
+    """EvoTorch NAS → Adam FlexMLP multi-seed training with MLflow tracking.
 
-    Trains one MLP per seed with BCEWithLogitsLoss, early stopping on
-    val loss, and class-weighted sampling. Evaluates via a pyfunc wrapper
-    so mlflow.evaluate() is used consistently with the ML trainer.
+    First runs EvoTorch architecture search to find optimal hidden layer dims,
+    then trains that FlexMLP with Adam across N seeds. Evaluates via a pyfunc
+    wrapper so mlflow.evaluate() is used consistently with the ML trainer.
 
     Public interface
     ----------------

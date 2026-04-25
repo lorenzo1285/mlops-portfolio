@@ -45,6 +45,7 @@ class DLConfig:
     hidden_1: int
     hidden_2: int
     dropout: float
+    weight_decay: float = 1e-4
 
 
 @dataclass
@@ -70,8 +71,17 @@ class FeatureSelectionConfig:
 
 
 @dataclass
+class ColumnContract:
+    dtype: str
+    mostly: float = 1.0
+    min: float | None = None
+    max: float | None = None
+    allowed_values: list[Any] | None = None
+
+
+@dataclass
 class ValidationConfig:
-    columns: dict[str, Any] = field(default_factory=dict)
+    columns: dict[str, ColumnContract] = field(default_factory=dict)
 
 
 @dataclass
@@ -107,6 +117,9 @@ def load_config(path: str | None = None) -> ProjectConfig:
         ),
         ab_test=ABTestConfig(**raw["ab_test"]),
         validation=ValidationConfig(
-            columns=raw.get("validation", {}).get("columns", {})
+            columns={
+                col: ColumnContract(**spec)
+                for col, spec in raw.get("validation", {}).get("columns", {}).items()
+            }
         ),
     )
