@@ -156,67 +156,21 @@ ENV PYTHONPATH=/app
 
 ---
 
-## Decision 6: Airflow DAG Rewrite Strategy
+## Decision 6: Airflow DAG Strategy ~~SUPERSEDED by Decision 10~~
 
-**Decision**: Rewrite `airflow/dags/crash_ml_pipeline.py` using the TaskFlow API
-(`@task` decorator). Each task calls the corresponding `src/<stage>/run.py` via
-`subprocess.run` or direct Python import.
-
-**Rationale**: TaskFlow API (Airflow 2.0+) passes data between tasks via XCom
-automatically and produces cleaner code than classic `PythonOperator`. The existing
-tutorial DAGs in `airflow/dags/` are kept for reference — a new `crash_ml_pipeline.py`
-is written from scratch (no modification of existing files).
-
-**Task structure**:
-```python
-from airflow.decorators import dag, task
-from datetime import datetime
-import subprocess, os
-
-@dag(schedule=None, start_date=datetime(2026,1,1), catchup=False, tags=["mlops"])
-def crash_severity_pipeline():
-
-    @task()
-    def ingest():
-        subprocess.run(["python", "-m", "src.ingest.run"], check=True)
-
-    @task()
-    def validate():
-        subprocess.run(["python", "-m", "src.validate.run"], check=True)
-
-    ingest() >> validate() >> ...
-
-crash_severity_pipeline()
-```
+> **Superseded 2026-04-26**: Airflow is eliminated from the active pipeline scope.
+> See Decision 10 for the KFP-only rationale. The `airflow/` directory is kept as
+> tutorial/learning reference material only; no active `crash_ml_pipeline.py` DAG
+> will be created.
 
 ---
 
-## Decision 7: PyTorch MLP Architecture
+## Decision 7: PyTorch MLP Architecture ~~SUPERSEDED by Decision 13~~
 
-**Decision**: ShallowMLP — Input(d) → Linear(128) → BatchNorm1d → ReLU → Dropout(0.3)
-→ Linear(64) → BatchNorm1d → ReLU → Dropout(0.3) → Linear(1). Maximum 3 hidden layers
-(constitution IV).
-
-**Loss**: `BCEWithLogitsLoss(pos_weight=torch.tensor([2.74]))` for training;
-`BCEWithLogitsLoss()` (no weight) for validation loss tracking.
-
-**Training controls**: Adam optimiser, lr=1e-3; early stopping with patience=10
-monitoring validation loss; batch_size=256 for training, 512 for validation/test.
-
-**Rationale**: Sample complexity for N=74k, d≈50-80 is insufficient for deep networks.
-Shallow MLP with Dropout + BatchNorm + Early Stopping provides SLT-sound generalisation
-control. Matches constitution IV exactly.
-
-**Per-epoch MLflow logging**:
-```python
-for epoch in range(max_epochs):
-    ein_loss, ein_f1 = train_one_epoch(...)
-    eout_loss, eout_f1 = evaluate(...)
-    mlflow.log_metrics({
-        "ein_loss": ein_loss, "eout_loss": eout_loss,
-        "gap_f1": eout_f1 - ein_f1, "eout_macro_f1": eout_f1
-    }, step=epoch)
-```
+> **Superseded 2026-04-26**: The MLP now operates on 32-dimensional Z vectors from the
+> frozen VAE encoder, not on raw preprocessed features. EvoTorch NAS removed. Target is
+> 3-class (PDO / Injury / Fatal). See Decision 13 for the updated architecture.
+> Loss is now `CrossEntropyLoss(weight=computed_class_weights)` (not BCEWithLogitsLoss).
 
 ---
 
@@ -287,38 +241,233 @@ the report documents this limitation.
 
 ---
 
-## Decision 9: params.yaml Structure
+## Decision 9: params.yaml Structure ~~SUPERSEDED by Decision 15~~
 
-**Decision**: Single `params.yaml` at repo root, read by DVC stages and importable
-by `src/` scripts. KFP components and Airflow tasks read the same file.
+> **Superseded 2026-04-26**: New `vae.*` and `encode.*` sections added. `model.*`
+> updated for multi-class (n_classes=3, new thresholds). `dl.*` updated for Z-vector
+> input (input_dim=32). Class weights now computed at runtime from training split.
+> See Decision 15 for the updated structure.
+
+---
+
+## Decision 11: Denoising β-VAE Architecture (train_vae stage)
+
+**Decision**: Encoder `[256, 128, 64] → latent_dim=32` (configurable dims, fixed latent).
+Decoder mirrors encoder. Input corruption via `nn.Dropout(p=0.15)` (neural inpainting).
+β-weighted ELBO loss: `ELBO = Reconstruction_loss + β × KL_divergence`.
+
+**Architecture**:
+```python
+class Encoder(nn.Module):
+    # Input → Linear(256) → LayerNorm → ReLU → Linear(128) → LayerNorm → ReLU
+    # → Linear(64) → LayerNorm → ReLU → [Linear(32) μ, Linear(32) log_σ²]
+    # Reparameterization: z = μ + ε × σ, ε ~ N(0,1)
+
+class Decoder(nn.Module):
+    # z(32) → Linear(64) → ReLU → Linear(128) → ReLU → Linear(256) → ReLU → Linear(d)
+
+class DenoisingBetaVAE(nn.Module):
+    def forward(self, x):
+        x_corrupted = F.dropout(x, p=self.dropout_p, training=True)  # neural inpainting
+        μ, log_σ² = self.encoder(x_corrupted)
+        z = self.reparameterize(μ, log_σ²)
+        x_hat = self.decoder(z)
+        return x_hat, μ, log_σ², z
+```
+
+**ELBO loss**:
+```python
+reconstruction_loss = F.mse_loss(x_hat, x, reduction='mean')  # target is clean x, not corrupted
+kl_loss = -0.5 * torch.mean(1 + log_σ² - μ.pow(2) - log_σ².exp())
+elbo = reconstruction_loss + beta * kl_loss
+```
+
+**Training on full X** (no Y — unsupervised): `X = np.concatenate([X_train, X_val, X_test])`.
+The VAE cannot overfit to the test target because target labels are never provided.
+
+**MLflow experiment**: `crash-severity-vae`. Single run per pipeline execution.
+Per-epoch: `vae_elbo`, `vae_reconstruction_loss`, `vae_kl_loss` with `step=epoch`.
+Best checkpoint (lowest validation ELBO) saved to `models/vae_encoder.pth`, `models/vae_decoder.pth`.
+
+**Rationale**: LayerNorm preferred over BatchNorm for the VAE because batch statistics
+can be unstable during reconstruction of tabular data with mixed scales. Dropout input
+corruption is the key denoising mechanism — the VAE must reconstruct clean X from
+corrupted input, which forces it to learn robust latent representations.
+
+**Alternatives considered**:
+- VQ-VAE: Discrete latent space less suited to continuous tabular interpolation. Not chosen.
+- AE (no KL): No generative capability — LSA would be meaningless without the smooth
+  latent space guaranteed by the KL term. Not chosen.
+- β=1 fixed: Useful baseline but β is the main HPO target — must be configurable.
+
+---
+
+## Decision 12: Latent-Space Augmentation (encode stage)
+
+**Decision**: After encoding all splits with the frozen VAE encoder, apply LSA to
+`Z_train` only. Generate synthetic fatal Z vectors by sampling Gaussian noise around
+the mean of real fatal Z vectors in Z_train, until fatal class reaches `lsa_target_ratio`
+(default 0.05 = 5% of Z_train rows).
+
+**Algorithm**:
+```python
+fatal_mask = (y_train == 2)  # Fatal class index
+z_fatal = Z_train[fatal_mask]
+if len(z_fatal) < min_fatal_samples:
+    raise RuntimeError(f"Too few fatal samples: {len(z_fatal)} < {min_fatal_samples}")
+
+fatal_mean = z_fatal.mean(axis=0)   # shape (32,)
+fatal_std  = z_fatal.std(axis=0)    # shape (32,) — per-dimension
+
+n_current = len(Z_train)
+n_target_fatal = int(n_current * lsa_target_ratio)
+n_synthetic = max(0, n_target_fatal - len(z_fatal))
+
+synthetic_z = fatal_mean + np.random.randn(n_synthetic, 32) * fatal_std
+Z_train_augmented = np.vstack([Z_train, synthetic_z])
+y_train_augmented = np.hstack([y_train, np.full(n_synthetic, 2)])
+```
+
+**Critical constraint**: `Z_val` and `Z_test` are NEVER augmented — they retain the
+true class distribution for unbiased evaluation.
+
+**Rationale**: Linear interpolation / Gaussian noise in the VAE latent space is
+semantically meaningful because the VAE's KL term forces the latent space to be
+approximately Gaussian and continuous. This is the property that makes LSA sound:
+sampling near a fatal Z centroid produces plausible-but-novel fatal crash representations.
+Raw-feature SMOTE lacks this property because the original feature space is mixed-type
+and high-dimensional.
+
+**Alternatives considered**:
+- Per-seed SMOTE in raw feature space: Constitutionally prohibited (Principle III v3.1.0).
+- Weighted loss only (no augmentation): Viable, but extremely low fatal frequency (<1%)
+  makes gradient signal too sparse even with high class weight. LSA addresses both
+  frequency and gradient signal. Chosen as complement to class weights.
+
+---
+
+## Decision 13: XGBoost Multi-Class Classifier (replaces PyCaret)
+
+**Decision**: `xgboost.XGBClassifier(objective='multi:softprob', num_class=3)` trained
+directly on `Z_train_augmented`. Class weights applied via `sample_weight` computed
+from training split class distribution: `w_c = N / (3 × class_count_c)`.
+
+**Key parameters** (in `params.yaml model.*` or passed via XGBoost config):
+```python
+clf = XGBClassifier(
+    objective='multi:softprob',
+    num_class=3,
+    n_estimators=300,
+    learning_rate=0.05,
+    max_depth=4,
+    random_state=seed,
+    eval_metric='mlogloss',
+    early_stopping_rounds=10,
+)
+clf.fit(
+    Z_train_augmented, y_train_augmented,
+    sample_weight=compute_sample_weights(y_train_augmented),
+    eval_set=[(Z_val, y_val)],
+    verbose=False
+)
+```
+
+**MLflow logging** (`mlflow.sklearn.autolog()` disabled per constitution):
+```python
+mlflow.log_params({...})  # XGBoost hyperparams
+mlflow.log_metrics({
+    "ein_macro_f1": ..., "eout_macro_f1": ...,
+    "eout_fatal_recall": ..., "generalisation_gap": ...
+})
+mlflow.log_artifact("per_class_matrix.json")  # per-class P/R/F1
+mlflow.sklearn.log_model(clf, "model")
+```
+
+**Rationale**: XGBoost on 32-dim Z vectors is an extremely well-posed problem — tree
+splits on a smooth, disentangled latent space are highly effective. PyCaret's `compare_models`
+is replaced because (a) the model family is now fixed (XGBoost) and (b) PyCaret's
+autolog conflicts with the manual metric tracking required by constitution V.
+
+**Alternatives considered**:
+- PyCaret (original plan): compare_models selects the best sklearn estimator. No longer
+  appropriate since the model selection question is now XGBoost vs MLP, not which
+  sklearn estimator. Not chosen.
+- RandomForest on Z: Valid alternative but XGBoost is more portfolio-relevant.
+
+---
+
+## Decision 14: Multi-Class Target Encoding
+
+**Decision**: Map CRASHSEVER string values to integers at the `featurize` stage:
+- `"Property Damage Only"` → `0` (PDO)
+- `"Injury"` → `1`
+- `"Fatal"` → `2`
+
+Encoding is applied to `y_train`, `y_val`, `y_test` (saved as `.npy` int arrays).
+The mapping is hardcoded in `Featurizer` as the canonical encoding for this dataset —
+not in `params.yaml`, because the string-to-int mapping is a dataset invariant, not
+a hyperparameter.
+
+**Class distribution estimate** (from ~74,309 rows):
+- PDO: ~60,000 rows (~81%)
+- Injury: ~13,000 rows (~17.5%)
+- Fatal: ~1,300 rows (~1.7%)  ← LSA target: augment to 5% of Z_train
+
+**Rationale**: Native 3-class encoding avoids the information loss of binary collapse
+(Injury+Fatal). The Fatal class is the safety-critical outcome; a model that ignores it
+is constitutionally gated (fatal recall > 0.30, Principle VI v3.1.0).
+
+---
+
+## Decision 15: Updated params.yaml Structure
+
+**Decision**: Add `vae.*` and `encode.*` sections. Update `model.*` for multi-class.
+Update `dl.*` for Z-vector input. Class weights computed at runtime, not hardcoded.
 
 ```yaml
 data:
   raw_path: data/raw/CGR_Crash_Data.csv
   processed_dir: data/processed/
-  test_size: 0.2
+  train_size: 0.70
+  val_size: 0.15
+  test_size: 0.15
   random_state: 42
-  sentinel_value: 999          # DRIVER1AGE/DRIVER2AGE → NaN
+  sentinel_value: 999
+
+vae:
+  encoder_dims: [256, 128, 64]
+  latent_dim: 32                # fixed — not tunable via Katib
+  beta: 1.0                     # runtime default; overwritten by tune.best_params.beta
+  dropout_p: 0.15               # neural inpainting corruption rate
+  epochs: 200
+  patience: 20
+  batch_size: 512
+  lr: 0.001
+  experiment_name: crash-severity-vae
+
+encode:
+  lsa_target_ratio: 0.05        # augment fatal class to 5% of Z_train
+  min_fatal_samples: 10         # halt if fewer real fatal samples
 
 model:
-  class_weight_neg: 0.61
-  class_weight_pos: 2.74
-  n_select: 3
-  macro_f1_threshold: 0.55
-  minority_recall_threshold: 0.40
+  n_classes: 3
+  macro_f1_threshold: 0.45      # was 0.55
+  fatal_recall_threshold: 0.30  # replaces minority_recall_threshold: 0.40
 
 dl:
+  input_dim: 32                 # Z-vector dimensionality
+  hidden_dim: 64
+  dropout: 0.3
   epochs: 100
   patience: 10
   batch_size: 256
   lr: 0.001
-  hidden_1: 128
-  hidden_2: 64
-  dropout: 0.3
 
 mlflow:
   experiment_name_ml: crash-severity-ml
   experiment_name_dl: crash-severity-dl
+  experiment_name_vae: crash-severity-vae
+  experiment_name_tune: crash-severity-tune
   model_name: crash-severity
   tracking_uri: mlruns/
 
@@ -327,7 +476,39 @@ great_expectations:
   datasource_name: crash_data
 
 ab_test:
-  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]   # N=10 runs per model
-  alpha: 0.05                               # significance level
-  tiebreak: ml                              # simpler model wins on p >= alpha
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  alpha: 0.05
+  tiebreak: ml
+
+tune:
+  best_params:
+    beta: null                  # written by tune stage after Katib completes
 ```
+
+---
+
+## Decision 10: KFP as the Sole Orchestrator (supersedes Decision 6)
+
+**Decision**: Kubeflow Pipelines (KFP) v2 is the sole production orchestrator.
+Apache Airflow is removed from the active implementation scope.
+
+**Rationale**: KFP enforces container-native discipline that Airflow standalone
+mode does not — each stage runs in an isolated, reproducible pod on Kubernetes.
+The key portfolio demonstrations (container isolation, pod-level logging, Kubernetes
+deployment, DVC caching inside a pod) are all delivered by KFP alone. Maintaining
+a parallel Airflow DAG adds 5 tasks of implementation overhead without introducing
+new MLOps concepts beyond what KFP already demonstrates.
+
+The `airflow/` directory is retained as tutorial/learning reference material
+(tutorial DAGs 01, 02, 03) so Airflow concepts remain visible in the repo, but
+no active `crash_ml_pipeline.py` DAG is created or maintained.
+
+**Alternatives considered**:
+- Keep both Airflow + KFP (original plan): Demonstrates both orchestrators side by
+  side, making trade-offs concrete. Not chosen — single-machine complexity without
+  proportional portfolio learning value at this stage.
+- Replace KFP with Airflow only: Simpler setup but loses container-native/Kubernetes
+  demonstration, which is the harder and more production-relevant skill. Not chosen.
+
+**Impact on constitution**: Principle IX amended from "parity: Airflow and Kubeflow"
+to "KFP-only" in constitution v3.0.0 (2026-04-26).

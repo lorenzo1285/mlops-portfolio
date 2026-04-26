@@ -1,11 +1,12 @@
 # Quickstart: MLOps Learning Portfolio
 
-**Branch**: `002-mlops-portfolio` | **Date**: 2026-04-22
+**Branch**: `002-mlops-portfolio` | **Date**: 2026-04-22 | **Updated**: 2026-04-26
 
-This guide walks through three ways to run the pipeline, in learning order:
+This guide walks through two ways to run the 10-stage pipeline, in learning order:
 1. **Local via DVC** — fastest, no containers needed
-2. **Airflow DAG** — local orchestration with UI
-3. **Kubeflow Pipelines** — container-native on Kubernetes
+2. **Kubeflow Pipelines** — container-native on Kubernetes
+
+**Pipeline stages**: `validate → ingest → featurize → train_vae → encode → train_ml → train_dl → evaluate → tune → register`
 
 ---
 
@@ -78,42 +79,21 @@ dvc pull
 uv run dvc repro
 ```
 
-**Verify**: `models/best_ml_model.pkl` and `docs/evaluation_report.json` exist.
-Open `great_expectations/uncommitted/data_docs/index.html` in a browser to see the
-validation report.
+**Verify**: The following artifacts exist after a successful run:
+- `models/vae_encoder.pth` + `models/vae_decoder.pth` — trained VAE
+- `data/processed/Z_train_augmented.npy`, `Z_val.npy`, `Z_test.npy` — latent vectors
+- `models/best_ml_model.pkl` — best XGBoost seed
+- `models/mlp_model.pth` — best MLP seed
+- `docs/ab_test_comparison.json` — A/B test result with p-value and winner
+- `docs/evaluation_report.json` — constitutional gate PASS/FAIL
+
+Open `great_expectations/gx/uncommitted/data_docs/index.html` in a browser to see the
+validation report. Open the MLflow UI (`uv run mlflow ui`) to inspect the
+`crash-severity-vae` ELBO convergence curve.
 
 ---
 
-## Path 2: Run via Airflow
-
-```bash
-# Start Airflow (standalone mode)
-cd airflow
-uv run airflow standalone
-# Open http://localhost:8080 (user: admin, password printed in terminal)
-```
-
-1. In the Airflow UI, find the DAG `crash_severity_pipeline`
-2. Toggle it **On**
-3. Click **Trigger DAG** (▶ button)
-4. Watch each task turn green in the Graph view
-5. Click any task → **Log** to see its output
-
-**If a task fails**:
-1. Fix the issue (e.g., correct the data quality problem)
-2. Click the failed task in the UI
-3. Click **Clear** → **Yes**
-4. The task re-runs; upstream completed tasks are skipped
-
-```bash
-# View MLflow tracking UI (run in a separate terminal)
-uv run mlflow ui
-# Open http://localhost:5000
-```
-
----
-
-## Path 3: Run via Kubeflow Pipelines
+## Path 2: Run via Kubeflow Pipelines
 
 ### One-Time Kubernetes Setup
 
@@ -160,8 +140,9 @@ uv run python pipelines/kubeflow/pipeline.py
 # 3. Runs → Create run → select pipeline → Start
 ```
 
-**Verify**: In the KFP UI, all six steps show green checkmarks. In the MLflow UI
-(`http://localhost:5000`), the run appears with tag `orchestrator=kubeflow`.
+**Verify**: In the KFP UI, all 10 steps show green checkmarks with correct dependency
+arrows. In the MLflow UI (`http://localhost:5000`), runs appear under `crash-severity-vae`,
+`crash-severity-ml`, `crash-severity-dl` tagged `orchestrator=kubeflow`.
 
 ---
 
@@ -173,10 +154,22 @@ uv run python - <<'EOF'
 import mlflow.pyfunc
 model = mlflow.pyfunc.load_model("models:/crash-severity@champion")
 print("Model loaded:", type(model))
+# Model produces 3-class predictions: 0=PDO, 1=Injury, 2=Fatal
 EOF
 ```
 
 Expected output: `Model loaded: <class 'mlflow.pyfunc.PyFuncModel'>`
+
+## Inspect the VAE ELBO Curve
+
+```bash
+# Open MLflow UI and navigate to crash-severity-vae experiment
+uv run mlflow ui
+# http://localhost:5000 → Experiments → crash-severity-vae → select run → Metrics → vae_elbo
+```
+
+The ELBO curve should decrease monotonically over at least 80% of training epochs.
+A diverging ELBO (increasing) means β may be too high — run `dvc repro tune` to search.
 
 ---
 
@@ -184,12 +177,15 @@ Expected output: `Model loaded: <class 'mlflow.pyfunc.PyFuncModel'>`
 
 | Action | Command |
 |---|---|
-| Run full pipeline | `uv run dvc repro` |
+| Run full 10-stage pipeline | `uv run dvc repro` |
+| Run single stage | `uv run dvc repro <stage>` e.g. `train_vae` |
 | Check pipeline status | `uv run dvc status` |
 | Push artifacts to remote | `dvc push` |
 | Pull artifacts from remote | `dvc pull` |
 | View MLflow UI | `uv run mlflow ui` |
-| Start Airflow | `cd airflow && uv run airflow standalone` |
+| View VAE ELBO curve | MLflow UI → `crash-severity-vae` → Metrics → `vae_elbo` |
 | Port-forward KFP UI | `kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8888:80` |
+| Port-forward Katib UI | `kubectl port-forward -n kubeflow svc/katib-ui 8080:80` |
 | Build Docker image | `docker build -f docker/Dockerfile -t mlops-portfolio:latest .` |
+| Compile KFP pipeline | `uv run python pipelines/kubeflow/pipeline.py` |
 | Load registered model | `mlflow.pyfunc.load_model("models:/crash-severity@champion")` |

@@ -25,8 +25,16 @@ class FeaturizeResult:
     selector: FeatureSelector | None
     feature_cols: list[str]
     selected_cols: list[str]
+    n_features_raw: int
     n_params: int
     samples_per_param_ratio: float
+
+
+_CRASHSEVER_MAP: dict[str, int] = {
+    "Property Damage Only": 0,
+    "Injury": 1,
+    "Fatal": 2,
+}
 
 
 class Featurizer:
@@ -81,6 +89,7 @@ class Featurizer:
         preprocessor, X_tr, X_vl, X_te = self._fit_preprocess(X_train, X_val, X_test)
 
         feature_names = list(preprocessor.get_feature_names_out())
+        n_features_raw = len(feature_names)
         selected_cols = feature_names
         active_selector: FeatureSelector | None = None
 
@@ -104,6 +113,7 @@ class Featurizer:
             selector=active_selector,
             feature_cols=list(X_train.columns),
             selected_cols=selected_cols,
+            n_features_raw=n_features_raw,
             n_params=n_params,
             samples_per_param_ratio=ratio,
         )
@@ -120,7 +130,7 @@ class Featurizer:
     def _separate_target(self, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
         feature_cols = [c for c in self._feature_cols if c in df.columns]
         X = df[feature_cols]
-        y = (df[self._target_col] != "PDO").astype(int)
+        y = df[self._target_col].map(_CRASHSEVER_MAP)
         return X, y
 
     def _split(

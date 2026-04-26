@@ -78,34 +78,64 @@ class TestFeaturize:
         X_train = np.load(output_dir / "X_train.npy")
         assert not np.isnan(X_train).any(), "X_train contains NaN values after preprocessing"
 
-    def test_y_train_contains_only_0_and_1(self, tmp_path):
-        """y_train contains only binary values 0 and 1."""
-        # Arrange: Use ingest output (constitution XVI)
+    def test_y_train_is_three_class(self, tmp_path):
+        """y_train contains exactly values {0, 1, 2} — PDO=0, Injury=1, Fatal=2."""
         input_csv = Path("data/processed/raw.csv")
         output_dir = tmp_path / "arrays"
         pipeline_path = tmp_path / "preprocessing_pipeline.joblib"
-        
+
         assert input_csv.exists(), f"Ingest output not found at {input_csv}"
-        
-        # Act
+
         env = os.environ.copy()
         env["INPUT_PATH"] = str(input_csv)
         env["OUTPUT_DIR"] = str(output_dir)
         env["PIPELINE_PATH"] = str(pipeline_path)
-        
+
         result = subprocess.run(
             ["uv", "run", "python", "-m", "src.featurize.run"],
             env=env,
             capture_output=True,
             text=True,
         )
-        
-        # Assert: y_train is binary
-        assert result.returncode == 0
+
+        assert result.returncode == 0, f"stderr: {result.stderr}"
         y_train = np.load(output_dir / "y_train.npy")
-        unique_values = np.unique(y_train)
-        assert set(unique_values).issubset({0, 1}), \
-            f"y_train should only contain 0 and 1, got {unique_values}"
+        unique_values = set(np.unique(y_train).tolist())
+        assert unique_values.issubset({0, 1, 2}), \
+            f"y_train must contain only {{0,1,2}}, got {unique_values}"
+        assert 2 in unique_values, "y_train has no Fatal (label=2) samples — check mapping"
+
+    def test_crashsever_fatal_maps_to_label_2(self, tmp_path):
+        """CRASHSEVER 'Fatal' rows map to integer label 2."""
+        input_csv = Path("data/processed/raw.csv")
+        output_dir = tmp_path / "arrays"
+        pipeline_path = tmp_path / "preprocessing_pipeline.joblib"
+
+        assert input_csv.exists(), f"Ingest output not found at {input_csv}"
+
+        df = pd.read_csv(input_csv, low_memory=False)
+        fatal_count = (df["CRASHSEVER"] == "Fatal").sum()
+        assert fatal_count > 0, "No Fatal rows in raw.csv — cannot verify mapping"
+
+        env = os.environ.copy()
+        env["INPUT_PATH"] = str(input_csv)
+        env["OUTPUT_DIR"] = str(output_dir)
+        env["PIPELINE_PATH"] = str(pipeline_path)
+
+        subprocess.run(
+            ["uv", "run", "python", "-m", "src.featurize.run"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+
+        y_train = np.load(output_dir / "y_train.npy")
+        y_val = np.load(output_dir / "y_val.npy")
+        y_test = np.load(output_dir / "y_test.npy")
+        y_all = np.concatenate([y_train, y_val, y_test])
+        n_label2 = (y_all == 2).sum()
+        assert n_label2 > 0, \
+            f"Fatal rows (CRASHSEVER='Fatal') should map to label 2; found 0 label-2 entries in y arrays"
 
     def test_split_sizes_match_params(self, tmp_path):
         """Split sizes match train_size/val_size/test_size from params (±1 row)."""
@@ -293,7 +323,7 @@ class TestFeaturize:
         env["INPUT_PATH"] = str(input_csv)
         env["OUTPUT_DIR"] = str(output_dir)
         env["PIPELINE_PATH"] = str(pipeline_path)
-        env["MLFLOW_TRACKING_URI"] = str(mlflow_dir)  # No file:// prefix on Windows
+        env["MLFLOW_TRACKING_URI"] = mlflow_dir.as_uri()
         
         result = subprocess.run(
             ["uv", "run", "python", "-m", "src.featurize.run"],
@@ -304,10 +334,11 @@ class TestFeaturize:
         
         # Assert: n_features_raw == n_features_selected
         assert result.returncode == 0, f"Expected exit 0, got {result.returncode}. stderr: {result.stderr}"
-        
+
         # Check MLflow for the metrics
-        mlflow.set_tracking_uri(str(mlflow_dir))  # No file:// prefix on Windows
-        client = mlflow.tracking.MlflowClient()
+        tracking_uri = mlflow_dir.as_uri()
+        mlflow.set_tracking_uri(tracking_uri)
+        client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
         experiments = client.search_experiments()
         assert len(experiments) > 0, "No MLflow experiments found"
         
@@ -339,7 +370,7 @@ class TestFeaturize:
         env["INPUT_PATH"] = str(input_csv)
         env["OUTPUT_DIR"] = str(output_dir)
         env["PIPELINE_PATH"] = str(pipeline_path)
-        env["MLFLOW_TRACKING_URI"] = str(mlflow_dir)  # No file:// prefix on Windows
+        env["MLFLOW_TRACKING_URI"] = mlflow_dir.as_uri()
         
         result = subprocess.run(
             ["uv", "run", "python", "-m", "src.featurize.run"],
@@ -352,19 +383,19 @@ class TestFeaturize:
         assert result.returncode == 0
         
         # Search for the run
-        mlflow.set_tracking_uri(str(mlflow_dir))  # No file:// prefix on Windows
-        client = mlflow.tracking.MlflowClient()
+        tracking_uri = mlflow_dir.as_uri()
+        mlflow.set_tracking_uri(tracking_uri)
+        client = mlflow.tracking.MlflowClient(tracking_uri=tracking_uri)
         experiments = client.search_experiments()
-        
-        # Should have at least one experiment with runs
+
         assert len(experiments) > 0, "No MLflow experiments found"
-        
+
         runs = client.search_runs(experiment_ids=[experiments[0].experiment_id])
         assert len(runs) > 0, "No MLflow runs found"
-        
+
         latest_run = runs[0]
         metrics = latest_run.data.metrics
-        
+
         assert "n_features_raw" in metrics, "n_features_raw not logged"
         assert "n_features_selected" in metrics, "n_features_selected not logged"
         assert "samples_per_param_ratio" in metrics, "samples_per_param_ratio not logged"

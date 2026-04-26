@@ -8,6 +8,7 @@ import pandas as pd
 
 from src.config import load_config
 from src.featurize.featurizer import Featurizer
+from src.featurize.selector import FeatureSelector
 
 
 def main() -> None:
@@ -18,6 +19,14 @@ def main() -> None:
 
     df = pd.read_csv(input_path, low_memory=False)
     initial_rows = len(df)
+
+    selector = None
+    if config.feature_selection.method != "none":
+        selector = FeatureSelector(
+            method=config.feature_selection.method,
+            n_features=config.feature_selection.n_features,
+            threshold=config.feature_selection.threshold,
+        )
 
     result = Featurizer(
         feature_cols=config.features.columns,
@@ -30,6 +39,7 @@ def main() -> None:
         sentinel_value=config.data.sentinel_value,
         sentinel_cols=config.features.sentinel_columns,
         ordinal_cols=config.features.ordinal_columns,
+        feature_selector=selector,
     ).fit_transform(df)
 
     total_out = len(result.y_train) + len(result.y_val) + len(result.y_test)
@@ -46,30 +56,33 @@ def main() -> None:
         np.save(os.path.join(output_dir, f"{name}.npy"), arr)
 
     os.makedirs(os.path.dirname(pipeline_path) or ".", exist_ok=True)
-    joblib.dump(
-        {"pipeline": result.preprocessor, "feature_cols": result.feature_cols},
-        pipeline_path,
-    )
+    joblib.dump(result.preprocessor, pipeline_path)
 
-    mlflow.set_tracking_uri(config.mlflow.tracking_uri)
+    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", config.mlflow.tracking_uri)
+    mlflow.set_tracking_uri(tracking_uri)
     with mlflow.start_run(run_name="featurize"):
         mlflow.log_params({
-            "n_samples": total_out,
-            "n_features": result.X_train.shape[1],
-            "mlp_n_params": result.n_params,
+            "feature_selection_method": config.feature_selection.method,
+            "n_classes": config.model.n_classes,
+        })
+        mlflow.log_metrics({
+            "n_samples": float(total_out),
+            "n_features_raw": float(result.n_features_raw),
+            "n_features_selected": float(result.X_train.shape[1]),
             "samples_per_param_ratio": round(result.samples_per_param_ratio, 4),
         })
 
     print(
         f"Featurize: {len(result.y_train)} train / {len(result.y_val)} val / "
-        f"{len(result.y_test)} test | {result.X_train.shape[1]} features | "
+        f"{len(result.y_test)} test | {result.n_features_raw} raw -> "
+        f"{result.X_train.shape[1]} selected features | "
         f"ratio={result.samples_per_param_ratio:.2f}"
     )
 
     if result.samples_per_param_ratio < 3.0:
         print(
             f"ERROR: samples_per_param_ratio={result.samples_per_param_ratio:.2f} < 3.0 — "
-            "MLP architecture must be reviewed before training proceeds",
+            "architecture must be reviewed before training proceeds",
             file=sys.stderr,
         )
         sys.exit(1)

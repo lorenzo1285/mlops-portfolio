@@ -1,64 +1,129 @@
 stages:
+  validate:
+    cmd: python -m src.validate.run
+    deps:
+      - src/validate/run.py
+      - src/validate/validator.py
+      - data/raw/CGR_Crash_Data.csv
+      - great_expectations/gx/great_expectations.yml
+    params:
+      - great_expectations.suite_name
+      - great_expectations.datasource_name
+      - validation.columns
+    outs:
+      - data/processed/.validation_passed:
+          cache: false
+
   ingest:
     cmd: python -m src.ingest.run
     deps:
       - src/ingest/run.py
-      - src/utils.py
+      - src/ingest/ingester.py
+      - data/processed/.validation_passed
     params:
       - data.raw_path
       - data.processed_dir
     outs:
       - data/processed/raw.csv
 
-  validate:
-    cmd: python -m src.validate.run
-    deps:
-      - src/validate/run.py
-      - src/utils.py
-      - data/processed/raw.csv
-      - great_expectations/gx/great_expectations.yml
-      - great_expectations/gx/expectations/crash_data_suite.json
-    params:
-      - great_expectations.suite_name
-      - great_expectations.datasource_name
-    outs:
-      - great_expectations/gx/uncommitted/data_docs:
-          cache: false
-
   featurize:
     cmd: python -m src.featurize.run
     deps:
       - src/featurize/run.py
-      - src/utils.py
+      - src/featurize/featurizer.py
+      - src/featurize/selector.py
+      - src/config.py
       - data/processed/raw.csv
     params:
+      - features.columns
+      - features.numeric_columns
+      - features.target_column
+      - features.ordinal_columns
+      - features.sentinel_columns
+      - data.train_size
+      - data.val_size
       - data.test_size
       - data.random_state
       - data.sentinel_value
+      - model.n_classes
+      - feature_selection.method
+      - feature_selection.n_features
+      - feature_selection.threshold
     outs:
       - data/processed/X_train.npy
+      - data/processed/X_val.npy
       - data/processed/X_test.npy
       - data/processed/y_train.npy
+      - data/processed/y_val.npy
       - data/processed/y_test.npy
       - models/preprocessing_pipeline.joblib
+
+  train_vae:
+    cmd: python -m src.train_vae.run
+    deps:
+      - src/train_vae/run.py
+      - src/train_vae/vae_trainer.py
+      - src/config.py
+      - data/processed/X_train.npy
+      - data/processed/X_val.npy
+      - data/processed/X_test.npy
+    params:
+      - vae.encoder_dims
+      - vae.latent_dim
+      - vae.beta
+      - vae.dropout_p
+      - vae.epochs
+      - vae.patience
+      - vae.batch_size
+      - vae.lr
+      - vae.experiment_name
+      - mlflow.tracking_uri
+    outs:
+      - models/vae_encoder.pth
+      - models/vae_decoder.pth
+
+  encode:
+    cmd: python -m src.encode.run
+    deps:
+      - src/encode/run.py
+      - src/encode/encoder.py
+      - src/config.py
+      - models/vae_encoder.pth
+      - data/processed/X_train.npy
+      - data/processed/y_train.npy
+      - data/processed/X_val.npy
+      - data/processed/X_test.npy
+    params:
+      - vae.latent_dim
+      - encode.lsa_target_ratio
+      - encode.min_fatal_samples
+    outs:
+      - data/processed/Z_train_augmented.npy
+      - data/processed/Z_val.npy
+      - data/processed/Z_test.npy
+      - data/processed/y_train_augmented.npy
 
   train_ml:
     cmd: python -m src.train_ml.run
     deps:
       - src/train_ml/run.py
-      - src/utils.py
-      - data/processed/X_train.npy
-      - data/processed/X_test.npy
-      - data/processed/y_train.npy
+      - src/train_ml/trainer.py
+      - src/config.py
+      - src/metrics.py
+      - data/processed/Z_train_augmented.npy
+      - data/processed/y_train_augmented.npy
+      - data/processed/Z_val.npy
+      - data/processed/y_val.npy
+      - data/processed/Z_test.npy
       - data/processed/y_test.npy
-      - models/preprocessing_pipeline.joblib
     params:
-      - model.class_weight_neg
-      - model.class_weight_pos
-      - model.n_select
+      - model.n_classes
+      - model.macro_f1_threshold
+      - model.fatal_recall_threshold
       - mlflow.experiment_name_ml
       - mlflow.tracking_uri
       - ab_test.seeds
+      - ab_test.alpha
     outs:
       - models/best_ml_model.pkl
 
@@ -66,23 +131,28 @@ stages:
     cmd: python -m src.train_dl.run
     deps:
       - src/train_dl/run.py
-      - src/utils.py
-      - data/processed/X_train.npy
-      - data/processed/X_test.npy
-      - data/processed/y_train.npy
+      - src/train_dl/trainer.py
+      - src/config.py
+      - src/metrics.py
+      - data/processed/Z_train_augmented.npy
+      - data/processed/y_train_augmented.npy
+      - data/processed/Z_val.npy
+      - data/processed/y_val.npy
+      - data/processed/Z_test.npy
       - data/processed/y_test.npy
     params:
-      - model.class_weight_pos
+      - dl.input_dim
+      - dl.hidden_dim
       - dl.epochs
       - dl.patience
       - dl.batch_size
       - dl.lr
-      - dl.hidden_1
-      - dl.hidden_2
       - dl.dropout
+      - model.n_classes
       - mlflow.experiment_name_dl
       - mlflow.tracking_uri
       - ab_test.seeds
+      - ab_test.alpha
     outs:
       - models/mlp_model.pth
 
@@ -90,15 +160,17 @@ stages:
     cmd: python -m src.evaluate.run
     deps:
       - src/evaluate/run.py
-      - src/utils.py
+      - src/evaluate/evaluator.py
+      - src/config.py
+      - src/metrics.py
       - models/best_ml_model.pkl
       - models/mlp_model.pth
-      - data/processed/X_test.npy
+      - data/processed/Z_test.npy
       - data/processed/y_test.npy
-      - models/preprocessing_pipeline.joblib
     params:
+      - model.n_classes
       - model.macro_f1_threshold
-      - model.minority_recall_threshold
+      - model.fatal_recall_threshold
       - mlflow.experiment_name_ml
       - mlflow.experiment_name_dl
       - mlflow.tracking_uri
@@ -108,15 +180,32 @@ stages:
       - docs/evaluation_report.json
       - docs/ab_test_comparison.json
 
+  tune:
+    cmd: python -m src.tune.run
+    deps:
+      - src/tune/run.py
+      - src/tune/tuner.py
+      - src/config.py
+      - docs/evaluation_report.json
+    params:
+      - tune.experiment_name
+      - tune.max_trials
+      - mlflow.tracking_uri
+    outs:
+      - docs/katib_best_params.json:
+          cache: false
+
   register:
     cmd: python -m src.register.run
     deps:
       - src/register/run.py
-      - src/utils.py
+      - src/register/registrar.py
+      - src/config.py
       - docs/evaluation_report.json
     params:
       - mlflow.model_name
       - mlflow.experiment_name_ml
       - mlflow.experiment_name_dl
       - mlflow.tracking_uri
-    # No outs: register writes only to MLflow Model Registry, not the filesystem
+    outs:
+      - models/registry_receipt.json

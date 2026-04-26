@@ -1,6 +1,6 @@
-# Data Model: MLOps Learning Portfolio
+# Data Model: MLOps Learning Portfolio — VAE-Based Crash Severity Pipeline
 
-**Branch**: `002-mlops-portfolio` | **Date**: 2026-04-22 | **Updated**: 2026-04-24
+**Branch**: `002-mlops-portfolio` | **Date**: 2026-04-22 | **Updated**: 2026-04-26
 
 ---
 
@@ -14,26 +14,28 @@ deps and params MUST produce byte-identical outputs (idempotency required for DV
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | Stage identifier: `ingest`, `validate`, `featurize`, `train_ml`, `train_dl`, `evaluate`, `tune`, `register` |
-| `cmd` | string | Shell command to execute (e.g., `python -m src.ingest.run`) |
+| `name` | string | Stage identifier: `validate`, `ingest`, `featurize`, `train_vae`, `encode`, `train_ml`, `train_dl`, `evaluate`, `tune`, `register` |
+| `cmd` | string | Shell command to execute (e.g., `python -m src.train_vae.run`) |
 | `deps` | list[path] | Input files/dirs this stage reads; change triggers re-run |
 | `outs` | list[path] | Output files/dirs this stage writes; DVC-tracked |
 | `params` | list[key] | Keys from `params.yaml` this stage reads; change triggers re-run |
 
-**Stage DAG** (`train_ml` and `train_dl` are parallel — both depend on `featurize`):
+**Stage DAG** (`train_ml` and `train_dl` are parallel — both depend on `encode`):
 
 ```
 validate  ← runs on data/raw/CGR_Crash_Data.csv (GE gate before any data is committed)
   └── ingest  ← only runs after validate sentinel exists
         └── featurize
-              ├── train_ml ─┐
-              └── train_dl ─┴── evaluate
-                                    └── tune
-                                          └── register
+              └── train_vae  ← unsupervised; trains on X_train+X_val+X_test (no Y)
+                    └── encode  ← frozen encoder → Z splits; LSA augments Z_train
+                          ├── train_ml ─┐
+                          └── train_dl ─┴── evaluate
+                                              └── tune
+                                                    └── register
 ```
 
 `train_ml` and `train_dl` have no dependency on each other and MAY run concurrently
-(`dvc repro --run-cache` or parallel Airflow tasks / KFP parallel steps).
+(`dvc repro --run-cache` or as parallel KFP steps).
 
 ---
 
@@ -63,6 +65,12 @@ content stored in DVC cache and remote.
 | `data/processed/y_val.npy` | `dvc.yaml outs` | featurize |
 | `data/processed/y_test.npy` | `dvc.yaml outs` | featurize |
 | `models/preprocessing_pipeline.joblib` | `dvc.yaml outs` | featurize |
+| `models/vae_encoder.pth` | `dvc.yaml outs` | train_vae |
+| `models/vae_decoder.pth` | `dvc.yaml outs` | train_vae |
+| `data/processed/Z_train_augmented.npy` | `dvc.yaml outs` | encode |
+| `data/processed/Z_val.npy` | `dvc.yaml outs` | encode |
+| `data/processed/Z_test.npy` | `dvc.yaml outs` | encode |
+| `data/processed/y_train_augmented.npy` | `dvc.yaml outs` | encode |
 | `models/best_ml_model.pkl` | `dvc.yaml outs` | train_ml |
 | `models/mlp_model.pth` | `dvc.yaml outs` | train_dl |
 | `docs/evaluation_report.json` | `dvc.yaml outs` | evaluate |
@@ -92,7 +100,7 @@ Execution follows the three-class workflow: `GEContextBuilder.build()` creates t
 | `expectations` | list[Expectation] | Individual quality rules (see below) |
 | `meta` | dict | GE metadata (asset, datasource) |
 
-**Expectation types generated** (one set per column in `params.yaml` `validation.columns`):
+**Expectation types generated**:
 
 | GE Class | Trigger | Column examples |
 |---|---|---|
@@ -100,25 +108,58 @@ Execution follows the three-class workflow: `GEContextBuilder.build()` creates t
 | `ExpectColumnValuesToBeBetween` | when `min` or `max` set | HOUR (0–23), SPEEDLIMIT (5–70), DRIVER1AGE (14–100) |
 | `ExpectColumnValuesToBeInSet` | when `allowed_values` set | DAYOFWEEK, WEATHER, SURFCOND, CRASHTYPE |
 
-`mostly` per expectation: null-tolerance uses `contract.mostly` per column;
-range/value-set checks use `_RANGE_MOSTLY=0.99` to tolerate known sentinel values.
+---
 
-**Validation result** (returned by `GEManager.run_validation()` as a `pd.DataFrame`):
+### 4. VAE Model
 
-| Column | Type | Description |
+The trained Denoising β-VAE. Encoder and decoder weights saved as separate `.pth`
+artifacts. The encoder alone is used by the `encode` stage; both are needed for Katib
+trials that retrain the VAE from scratch.
+
+| Field | Type | Description |
 |---|---|---|
-| `Expectation` | str | GE class name (e.g., `ExpectColumnValuesToNotBeNull`) |
-| `Column` | str | Column being checked |
-| `Rule` | str | Human label from `meta.rule` (e.g., `HOUR_not_null`) |
-| `Success` | bool | Whether this expectation passed |
-| `Total Rows` | int | Rows evaluated |
-| `Bad Rows` | int | Rows violating the expectation |
-| `Success %` | str | Formatted pass rate (e.g., `"99.73%"`) |
-| `Examples` | list | Up to 5 offending values (from `partial_unexpected_list`) |
+| `encoder_path` | string | `models/vae_encoder.pth` |
+| `decoder_path` | string | `models/vae_decoder.pth` |
+| `latent_dim` | int | 32 (fixed; not tunable) |
+| `encoder_dims` | list[int] | `[256, 128, 64]` (configurable via `params.yaml vae.encoder_dims`) |
+| `beta` | float | β weight on KL divergence; tuned by Katib |
+| `best_epoch` | int | Epoch at which lowest validation ELBO was achieved |
+| `vae_elbo` | float | Best validation ELBO (logged to MLflow) |
+| `mlflow_run_id` | string | MLflow run ID in `crash-severity-vae` experiment |
 
 ---
 
-### 4a. ML Experiment Run (PyCaret)
+### 5. Latent Vector (Z)
+
+A 32-dimensional compressed representation of one crash record produced by passing
+preprocessed features through the frozen VAE encoder. The input to both classifiers.
+
+| Field | Type | Description |
+|---|---|---|
+| `Z_train_augmented` | ndarray (N_aug × 32) | Training Z vectors + LSA-synthesised fatal vectors |
+| `Z_val` | ndarray (N_val × 32) | Validation Z vectors — never augmented |
+| `Z_test` | ndarray (N_test × 32) | Test Z vectors — never augmented |
+| `y_train_augmented` | ndarray (N_aug,) | Labels aligned with Z_train_augmented (0/1/2) |
+
+---
+
+### 6. LSA Augmentation
+
+Synthetic fatal-class Z vectors generated by adding Gaussian noise around the mean of
+real fatal Z vectors in `Z_train`. Applied only to `Z_train`; `Z_val` and `Z_test` are
+never touched.
+
+| Field | Type | Description |
+|---|---|---|
+| `n_real_fatal` | int | Count of real Fatal samples in y_train |
+| `n_synthetic` | int | Count of generated fatal Z vectors |
+| `lsa_target_ratio` | float | Target fatal fraction of Z_train_augmented (default 0.05) |
+| `fatal_centroid` | ndarray (32,) | Per-dimension mean of real fatal Z vectors |
+| `fatal_std` | ndarray (32,) | Per-dimension std of real fatal Z vectors |
+
+---
+
+### 7a. ML Experiment Run (XGBoost)
 
 Produced by the `train_ml` stage. MLflow experiment: `crash-severity-ml`.
 
@@ -126,17 +167,18 @@ Produced by the `train_ml` stage. MLflow experiment: `crash-severity-ml`.
 |---|---|---|
 | `run_id` | string | MLflow UUID |
 | `experiment_name` | string | `crash-severity-ml` |
-| `params` | dict | PyCaret model name, hyperparameters (logged via `mlflow.log_params` — autolog disabled) |
-| `metrics.ein_macro_f1` | float | In-sample macro F1 |
-| `metrics.eout_macro_f1` | float | Test-set macro F1 |
-| `metrics.eout_minority_recall` | float | Test-set recall on minority class |
-| `metrics.generalisation_gap` | float | `eout − ein` |
+| `params` | dict | XGBoost hyperparameters (logged via `mlflow.log_params`) |
+| `metrics.ein_macro_f1` | float | In-sample macro F1 (Z_train_augmented) |
+| `metrics.eout_macro_f1` | float | Test-set macro F1 (Z_test) |
+| `metrics.eout_fatal_recall` | float | Test-set recall on Fatal class (Z_test) |
+| `metrics.generalisation_gap` | float | `eout_macro_f1 − ein_macro_f1` |
+| `artifact.per_class_matrix.json` | dict | Per-class P/R/F1 for PDO / Injury / Fatal |
 | `artifact_uri` | string | Path to `.pkl` model |
-| `tags.seed` | string | Random seed for this run (e.g., `"3"`) |
-| `tags.model_type` | string | `pycaret-ml` |
-| `tags.orchestrator` | string | `dvc` / `airflow` / `kubeflow` |
+| `tags.seed` | string | Random seed for this run |
+| `tags.model_type` | string | `xgboost` |
+| `tags.orchestrator` | string | `dvc` / `kubeflow` |
 
-### 4b. DL Experiment Run (EvoTorch NAS + Adam)
+### 7b. DL Experiment Run (PyTorch MLP on Z)
 
 Produced by the `train_dl` stage. MLflow experiment: `crash-severity-dl`.
 
@@ -144,18 +186,36 @@ Produced by the `train_dl` stage. MLflow experiment: `crash-severity-dl`.
 |---|---|---|
 | `run_id` | string | MLflow UUID |
 | `experiment_name` | string | `crash-severity-dl` |
-| `metrics.ein_loss` | float (per epoch) | Training BCE loss |
-| `metrics.eout_loss` | float (per epoch) | Validation BCE loss |
+| `metrics.ein_loss` | float (per epoch) | Training CrossEntropy loss |
+| `metrics.eout_loss` | float (per epoch) | Validation CrossEntropy loss |
 | `metrics.gap_f1` | float (per epoch) | `eout_macro_f1 − ein_macro_f1` |
 | `metrics.eout_macro_f1` | float | Final test-set macro F1 |
-| `metrics.eout_minority_recall` | float | Final test-set recall on minority class |
+| `metrics.eout_fatal_recall` | float | Final test-set recall on Fatal class |
+| `artifact.per_class_matrix.json` | dict | Per-class P/R/F1 for PDO / Injury / Fatal |
 | `artifact_uri` | string | Path to `.pth` checkpoint |
-| `tags.seed` | string | Random seed for this run (e.g., `"3"`) |
-| `tags.model_type` | string | `evotorch-adam-mlp` |
-| `tags.arch_hidden_dims` | string | NAS-selected architecture (e.g., `"[128, 64]"`) |
-| `tags.orchestrator` | string | `dvc` / `airflow` / `kubeflow` |
+| `tags.seed` | string | Random seed for this run |
+| `tags.model_type` | string | `pytorch-mlp` |
+| `tags.architecture` | string | `32-64-3-dropout0.3` |
+| `tags.orchestrator` | string | `dvc` / `kubeflow` |
 
-### 4c. A/B Test Result
+### 7c. VAE Training Run
+
+Produced by the `train_vae` stage. MLflow experiment: `crash-severity-vae`.
+
+| Field | Type | Description |
+|---|---|---|
+| `run_id` | string | MLflow UUID |
+| `experiment_name` | string | `crash-severity-vae` |
+| `metrics.vae_elbo` | float (per epoch) | ELBO = reconstruction_loss + β × KL |
+| `metrics.vae_reconstruction_loss` | float (per epoch) | MSE reconstruction loss |
+| `metrics.vae_kl_loss` | float (per epoch) | KL divergence term |
+| `params.beta` | float | β value used for this run |
+| `params.encoder_dims` | string | e.g., `"[256, 128, 64]"` |
+| `params.latent_dim` | int | 32 |
+| `params.best_epoch` | int | Epoch of best validation ELBO |
+| `tags.orchestrator` | string | `dvc` / `kubeflow` |
+
+### 7d. A/B Test Result
 
 Produced by the `evaluate` stage. Stored as `docs/ab_test_comparison.json`.
 Matches the `EvaluationResult` dataclass in `src/evaluate/evaluator.py`.
@@ -172,11 +232,13 @@ Matches the `EvaluationResult` dataclass in `src/evaluate/evaluator.py`.
 | `dl_ci_low` | float | 95% CI lower bound — DL |
 | `dl_ci_high` | float | 95% CI upper bound — DL |
 | `significant` | bool | `True` if p_value < alpha |
-| `gates_passed` | bool | `True` if winner F1 > 0.55 AND recall > 0.40 |
+| `gates_passed` | bool | `True` if winner macro F1 > 0.45 AND fatal recall > 0.30 |
+| `winner_ml_per_class` | dict | Per-class P/R/F1 matrix for ML winner |
+| `winner_dl_per_class` | dict | Per-class P/R/F1 matrix for DL winner |
 
 ---
 
-### 5. Registered Model
+### 8. Registered Model
 
 A promoted model artifact in the MLflow Model Registry. Independent of the training
 run ID and local filesystem path. Matches the `RegistryReceipt` dataclass in
@@ -194,42 +256,26 @@ run ID and local filesystem path. Matches the `RegistryReceipt` dataclass in
 
 ---
 
-### 6. Airflow DAG
+### 9. KFP Pipeline
 
-The Airflow representation of the pipeline. Eight tasks in dependency order
-(train_ml and train_dl are parallel after featurize).
-
-| Field | Type | Description |
-|---|---|---|
-| `dag_id` | string | `crash_severity_pipeline` |
-| `schedule` | string/None | `None` (manual trigger only for portfolio) |
-| `tags` | list | `["mlops", "crash-severity"]` |
-| `tasks` | list[Task] | `ingest`, `validate`, `featurize`, `train_ml`, `train_dl`, `evaluate`, `tune`, `register` |
-| `default_args.retries` | int | `2` |
-| `default_args.retry_delay` | timedelta | 5 minutes |
-
----
-
-### 7. KFP Pipeline
-
-The Kubeflow Pipelines representation. Eight containerised components with the same
-logical dependency structure as the Airflow DAG.
+The Kubeflow Pipelines representation. Ten containerised components with the same
+logical dependency structure as the DVC pipeline DAG.
 
 | Field | Type | Description |
 |---|---|---|
 | `pipeline_name` | string | `crash-severity-pipeline` |
-| `components` | list[Component] | One `@dsl.component` per stage (8 total) |
+| `components` | list[Component] | One `@dsl.component` per stage (10 total) |
 | `base_image` | string | `mlops-portfolio:latest` (local Docker image) |
 | `pipeline_yaml` | string | `pipelines/kubeflow/pipeline.yaml` (compiled output) |
 
-**Component interface** (all eight components share this pattern):
+**Component interface** (all ten components share this pattern):
 
 | Parameter | Direction | Type | Description |
 |---|---|---|---|
 | `input_path` | input | str | Path to stage's primary input artifact |
 | `output_path` | input | str | Path where stage writes its output |
 | `params_path` | input | str | Path to `params.yaml` |
-| `mlflow_uri` | input | str | MLflow tracking URI (only for train/evaluate/register) |
+| `mlflow_uri` | input | str | MLflow tracking URI (train_vae, train_ml, train_dl, evaluate, register only) |
 
 ---
 
@@ -240,12 +286,23 @@ logical dependency structure as the Airflow DAG.
 ```
 PENDING → RUNNING → SUCCESS
                  ↘ FAILED (validate failure halts all downstream stages)
+                 ↘ FAILED (encode: < min_fatal_samples → halt with exit 1)
+                 ↘ FAILED (evaluate: gates_passed=False → register blocked)
 ```
 
 ### Model Lifecycle
 
 ```
-[Experiment Run] → registered → version=N, alias=None
-                             → alias="champion" (promoted by register stage)
-                             → alias="champion" overwritten (next better model)
+[VAE Training Run] → encoder/decoder artifacts saved → used by encode stage
+[Classifier Run]   → registered → version=N, alias=None
+                               → alias="champion" (promoted by register stage)
+                               → alias="champion" overwritten (next better model)
+```
+
+### LSA State
+
+```
+Z_train (real only) → LSA augmentation → Z_train_augmented (real + synthetic fatal)
+Z_val   (unchanged, never augmented)
+Z_test  (unchanged, never augmented)
 ```

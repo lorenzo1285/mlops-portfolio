@@ -69,25 +69,40 @@ data:
   sentinel_value: 999
 
 model:
-  class_weight_neg: 0.61
-  class_weight_pos: 2.74
+  n_classes: 3
   n_select: 3
-  macro_f1_threshold: 0.55
-  minority_recall_threshold: 0.40
+  macro_f1_threshold: 0.45
+  fatal_recall_threshold: 0.30
 
 dl:
+  input_dim: 32
+  hidden_dim: 64
   epochs: 100
   patience: 10
   batch_size: 256
   lr: 0.001
-  hidden_1: 128
-  hidden_2: 64
   dropout: 0.3
-  weight_decay: 1.0e-4
+
+vae:
+  encoder_dims: [256, 128, 64]
+  latent_dim: 32
+  beta: 1.0
+  dropout_p: 0.15
+  epochs: 200
+  patience: 20
+  batch_size: 512
+  lr: 0.001
+  experiment_name: crash-severity-vae
+
+encode:
+  lsa_target_ratio: 0.05
+  min_fatal_samples: 10
 
 mlflow:
   experiment_name_ml: crash-severity-ml
   experiment_name_dl: crash-severity-dl
+  experiment_name_vae: crash-severity-vae
+  experiment_name_tune: crash-severity-tune
   model_name: crash-severity
   tracking_uri: mlruns/
 
@@ -104,6 +119,11 @@ feature_selection:
   method: none  # one of: none, mutual_info, rfe, correlation, vif
   n_features: 10  # used by supervised methods (mutual_info, rfe)
   threshold: 0.95  # used by unsupervised methods (correlation, vif)
+
+tune:
+  experiment_name: vae-beta-search
+  max_trials: 5
+  namespace: kubeflow
 
 validation:
   columns:

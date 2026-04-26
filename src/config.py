@@ -29,23 +29,40 @@ class DataConfig:
 
 @dataclass
 class ModelConfig:
-    class_weight_neg: float
-    class_weight_pos: float
+    n_classes: int
     n_select: int
     macro_f1_threshold: float
-    minority_recall_threshold: float
+    fatal_recall_threshold: float
 
 
 @dataclass
 class DLConfig:
+    input_dim: int
+    hidden_dim: int
     epochs: int
     patience: int
     batch_size: int
     lr: float
-    hidden_1: int
-    hidden_2: int
     dropout: float
-    weight_decay: float = 1e-4
+
+
+@dataclass
+class VAEConfig:
+    encoder_dims: list[int]
+    latent_dim: int
+    beta: float
+    dropout_p: float
+    epochs: int
+    patience: int
+    batch_size: int
+    lr: float
+    experiment_name: str
+
+
+@dataclass
+class EncodeConfig:
+    lsa_target_ratio: float
+    min_fatal_samples: int
 
 
 @dataclass
@@ -53,6 +70,8 @@ class MLflowConfig:
     tracking_uri: str
     experiment_name_ml: str
     experiment_name_dl: str
+    experiment_name_vae: str
+    experiment_name_tune: str
     model_name: str
 
 
@@ -90,6 +109,8 @@ class ProjectConfig:
     data: DataConfig
     model: ModelConfig
     dl: DLConfig
+    vae: VAEConfig
+    encode: EncodeConfig
     mlflow: MLflowConfig
     ab_test: ABTestConfig
     feature_selection: FeatureSelectionConfig
@@ -101,7 +122,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
 
-    required = {"features", "data", "model", "dl", "mlflow", "ab_test"}
+    required = {"features", "data", "model", "dl", "vae", "encode", "mlflow", "ab_test"}
     missing = required - raw.keys()
     if missing:
         raise KeyError(f"params.yaml missing required sections: {missing}")
@@ -111,6 +132,8 @@ def load_config(path: str | None = None) -> ProjectConfig:
         data=DataConfig(**raw["data"]),
         model=ModelConfig(**raw["model"]),
         dl=DLConfig(**raw["dl"]),
+        vae=VAEConfig(**raw["vae"]),
+        encode=EncodeConfig(**raw["encode"]),
         mlflow=MLflowConfig(**raw["mlflow"]),
         feature_selection=FeatureSelectionConfig(
             **raw.get("feature_selection", {})

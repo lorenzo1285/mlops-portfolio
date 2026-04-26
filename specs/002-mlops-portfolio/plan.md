@@ -1,89 +1,81 @@
-# Implementation Plan: MLOps Learning Portfolio — Crash Severity Use Case
+# Implementation Plan: MLOps Learning Portfolio — VAE-Based Crash Severity Pipeline
 
-**Branch**: `002-mlops-portfolio` | **Date**: 2026-04-22 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `specs/002-mlops-portfolio/spec.md`
+**Branch**: `002-mlops-portfolio` | **Date**: 2026-04-26 | **Spec**: [spec.md](spec.md)
+**Input**: Feature specification from `/specs/002-mlops-portfolio/spec.md`
 
 ---
 
 ## Summary
 
-Build an eight-stage ML pipeline on the CGR crash dataset:
-`ingest → validate → featurize → train_ml → train_dl → evaluate → tune → register`
-
-`train_ml` uses PyCaret (`compare_models` + `tune_model`); `train_dl` runs **EvoTorch NAS** to find the optimal MLP architecture, then trains the best architecture with **Adam** across N seeds. Both are tracked in MLflow. The `evaluate` stage runs an
-A/B test via `mlflow.evaluate()` on the shared held-out test set and declares a winner
-by macro F1. The winner is registered as `models:/crash-severity@champion`. The full
-pipeline is versioned with DVC, quality-gated with Great Expectations, and orchestrated
-by both Apache Airflow and Kubeflow Pipelines (Docker Desktop Kubernetes).
+Build a 10-stage ML pipeline on the CGR crash dataset demonstrating the full MLOps
+toolchain. The architectural foundation is a Denoising β-VAE that learns a compressed
+latent representation of crash records (unsupervised, no labels). Both classifiers —
+XGBoost and a PyTorch MLP — operate on 32-dimensional Z vectors produced by the frozen
+encoder, not on raw features. Latent-Space Augmentation (LSA) handles the extreme Fatal
+class imbalance by synthesising Z-space samples before any supervised training. A
+statistical A/B test (Welch's t-test, N=10 seeds each) compares the two classifiers on
+the same held-out Z_test set. Katib searches the β hyperparameter. Kubeflow Pipelines
+is the sole orchestrator.
 
 ---
 
 ## Technical Context
 
-**Language/Version**: Python 3.12 (pinned in `.python-version`)
-**Package Manager**: uv (existing)
+**Language/Version**: Python 3.12, managed with `uv`
 **Primary Dependencies**:
-- `dvc>=3.0` — pipeline versioning and caching
-- `great-expectations>=1.0` — data validation (v1 API, breaking change from 0.x)
-- `mlflow>=3.10.1` — experiment tracking and model registry (already in pyproject.toml)
-- `apache-airflow>=2.8.0` — local DAG orchestration (already in pyproject.toml)
-- `kfp>=2.0` — Kubeflow Pipelines SDK v2
-- `evotorch>=0.5` — neural architecture search (NAS) via evolutionary strategies (SNES/PGPE)
-- `kubernetes>=28.0` — Katib Experiment submission and polling
-- `scikit-learn`, `pycaret>=3.3.2` — ML training (already in pyproject.toml)
+- PyTorch 2.x — β-VAE encoder/decoder + MLP classifier
+- XGBoost 2.x — multi-class classifier on Z vectors
+- DVC 3.x — 10-stage pipeline DAG, artifact versioning
+- Great Expectations 1.x — data validation (GE v1 API)
+- MLflow 3.x — experiment tracking + model registry + `mlflow.evaluate()`
+- Kubeflow Pipelines SDK v2 — 10 `@dsl.component` definitions
+- Katib (Kubernetes CRD) — β HPO via `vae_experiment.yaml`
+- scikit-learn — `ColumnTransformer` preprocessing pipeline + `compute_class_weight`
+- scipy — Welch's t-test + Cohen's d
 
-**Storage**:
-- DVC cache: `.dvc/cache/` (local) + DVC remote: `data/dvc-remote/` (local dir)
-- MLflow tracking: `mlruns/` (local filesystem)
-- Great Expectations Data Docs: `great_expectations/uncommitted/data_docs/`
-- Processed artifacts: `data/processed/`, `models/`
+**Storage**: Local DVC remote (`data/dvc-remote`); MLflow local (`mlruns/`); numpy `.npy`
+arrays for Z vectors; `.pth` checkpoint for VAE encoder/decoder; `.pkl` for XGBoost
 
-**Testing**: pytest — boundary tests per stage's public interface (ENV-var in / artifact out); written test-first (red→green→refactor); no unit tests on internal functions
+**Testing**: pytest, red→green→refactor TDD cycle (Constitution XV); boundary tests only
 
-**Target Platform**: Windows 11 / Docker Desktop / Docker Desktop Kubernetes (single-node)
+**Target Platform**: Windows 11 + Docker Desktop Kubernetes (local dev); container-portable
 
-**Project Type**: ML pipeline / MLOps learning portfolio
+**Performance Goals**: Classifier inference < 30 s from registry load; VAE training
+convergent within configured epoch budget; full pipeline completable on one machine
 
-**Performance Goals**:
-- Full `dvc repro` end-to-end: < 30 minutes (dominated by PyCaret `compare_models`)
-- Model load from registry: < 30 seconds (SC-006)
-- Data validation: < 60 seconds for 74k rows
+**Constraints**: Sequential stage execution (no RAM contention); Docker Desktop
+Kubernetes resource limits; single DVC remote (local filesystem)
 
-**Constraints**:
-- Docker Desktop Kubernetes: ~4GB RAM available for Kubeflow pods
-- Kubeflow Pipelines **standalone** only (not full Kubeflow) — lighter footprint
-- No cloud dependencies — all storage and tracking is local
-- Single base Docker image (`python:3.12-slim`) for all stages to reduce build overhead
-
-**Scale/Scope**: 74,309 rows × 142 cols → ~50–80 selected features; 8 pipeline stages;
-2 orchestrators; 1 Docker image; 1 DVC remote (local); 3-way split (70/15/15 train/val/test)
+**Scale/Scope**: 74,309 rows; ~50-80 preprocessed features → 32-dim Z vectors; N=10
+seeds per classifier; 5 β values for Katib
 
 ---
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-checked after Phase 1 design: all PASS.*
+*Constitution v3.1.0 — checked 2026-04-26*
 
-| Gate | Status | Evidence |
+| Gate | Status | Detail |
 |---|---|---|
-| No post-crash columns in feature list | ✅ PASS | spec FR-001, constitution I; featurize stage selects pre-crash cols only |
-| Pipeline fit only on train | ✅ PASS | featurize stage fits pipeline on `X_train` only (constitution II) |
-| Class weights (not SMOTE) | ✅ PASS | `params.yaml` carries `class_weight_pos=2.74` (constitution III) |
-| MLflow tracking in plan | ✅ PASS | train_ml uses `mlflow.sklearn.autolog()`; train_dl logs per-epoch; evaluate uses `mlflow.evaluate()` A/B (constitution V) |
-| Macro F1 threshold assertion in tasks | ✅ PASS | evaluate stage A/B test asserts F1 > 0.55, recall > 0.40 for winner (constitution VI) |
-| DVC pipeline stages in `dvc.yaml` | ✅ PASS | all 6 stages defined with `deps`/`outs`/`cmd` (constitution VII) |
-| GE validation before train stage | ✅ PASS | validate stage is a DVC dep of featurize; blocks pipeline on failure (constitution VIII) |
-| Airflow DAG and KFP pipeline both defined | ✅ PASS | US4 + US5, FR-006 + FR-007 (constitution IX) |
-| Each stage runnable as Docker container | ✅ PASS | single Dockerfile + ENV-var interface (constitution X) |
-| No notebook in pipeline tasks | ✅ PASS | all stages in `src/*/run.py`; `notebooks/` is exploration only (constitution XI) |
-| `UBIQUITOUS_LANGUAGE.md` exists and covers all spec terms | ⚠️ PENDING | file generated at spec review 2026-04-23; spec Key Entities + stage names canonicalised (constitution XII) |
-| No flagged ambiguities unresolved in glossary | ⚠️ PENDING | to be verified after `/ubiquitous-language` run (constitution XII) |
-| Grill-me pass completed and spec updated | ⚠️ PENDING | to be completed before implementation begins (constitution XIII) |
-| All `src/` code written test-first; boundary tests only | ⚠️ PENDING | TDD tasks added to tasks.md preceding each implementation task (constitution XIV, XV) |
-| No shallow modules introduced | ⚠️ PENDING | `src/utils.py` load_params() flagged for review; to be verified at feature close (constitution XIV) |
-| No ad-hoc data quality assertions in stage code or tests; boundary tests downstream of `validate` use `data/processed/raw.csv` | ⚠️ PENDING | T020 test fixture path and partial-params bug must be fixed before GREEN; T022 (Phase 3C) uses real `validate/run.py` — no stub (constitution XVI) |
+| No post-crash columns as model inputs | **PASS** | `featurize` governs feature selection; VAE trains on preprocessed X (pre-crash only) |
+| `samples_per_param_ratio ≥ 3.0` logged by featurize | **PASS** | MLP on Z(32): ~2,307 params; ratio ≈ 22.5 × — easily above 3.0 |
+| Preprocessing fit on train split only | **PASS** | `ColumnTransformer` fits on X_train; VAE uses all X (Principle II unsupervised exception) |
+| Test set never used during HPO search | **PASS** | Katib trials evaluate fitness on `Z_val` — spec `eout_macro_f1` in tune context means val; `Z_test` reserved for `evaluate` stage only |
+| Class imbalance strategy documented | **PASS** | Runtime-computed class weights + LSA on Z_train only (Principle III v3.1.0) |
+| MLflow tracking present in plan | **PASS** | FR-004–FR-010; experiments: vae, ml, dl, tune |
+| Macro F1 > 0.45 AND fatal recall > 0.30 gates | **PASS** | FR-009, SC-005; Principle VI v3.1.0 |
+| DVC pipeline stages defined in `dvc.yaml` | **PASS** | FR-002: 10 stages with explicit deps/outs/params |
+| GE expectation suite before train stage | **PASS** | validate → ingest → featurize → train_vae |
+| KFP pipeline — all 10 stages as `@dsl.component` | **PASS** | FR-015; `pipelines/kubeflow/pipeline.py` |
+| Each stage executable as Docker container | **PASS** | FR-014; Principle X |
+| No notebooks in pipeline tasks | **PASS** | Principle XI |
+| All spec terms in `UBIQUITOUS_LANGUAGE.md` | **ACTION BEFORE TASKS** | New terms (β-VAE, ELBO, LSA, Z_train_augmented, latent_dim, PDO, fatal class) must be added via `/ubiquitous-language` before `/speckit.tasks` |
+| Grill-me pass completed and spec updated | **PASS** | Completed 2026-04-26 |
 
-**Result**: Gates I–XI PASS. Gates XII–XVI PENDING — must be resolved before `/speckit.implement` begins.
+**Design constraint (tune stage)**: Katib trials compute fitness on `Z_val`. The stage
+contract for `tune` must explicitly state: `Z_TEST_PATH` is passed through to the final
+post-tune `evaluate` call only; the Katib metric collector reads `val_macro_f1` from
+stdout, not `test_macro_f1`.
 
 ---
 
@@ -93,117 +85,257 @@ by both Apache Airflow and Kubeflow Pipelines (Docker Desktop Kubernetes).
 
 ```text
 specs/002-mlops-portfolio/
-├── plan.md              ✅ this file
-├── research.md          ✅ Phase 0 output
-├── data-model.md        ✅ Phase 1 output
-├── quickstart.md        ✅ Phase 1 output
+├── plan.md              ← this file
+├── research.md          ← Phase 0 (updated with VAE decisions 11–15)
+├── data-model.md        ← Phase 1 (rewritten for 10-stage VAE pipeline)
+├── quickstart.md        ← Phase 1 (updated for 10-stage pipeline)
 ├── contracts/
-│   └── stage-interface.md  ✅ Phase 1 output
-└── tasks.md             🔜 Phase 2 output (/speckit.tasks)
+│   └── stage-interface.md   ← Phase 1 (added train_vae + encode; updated train_ml/dl/evaluate)
+├── checklists/
+│   └── requirements.md
+└── tasks.md             ← Phase 2 output (/speckit.tasks — NOT created here)
 ```
 
 ### Source Code (repository root)
 
 ```text
-mlops-portfolio/
-│
-├── src/                          # Stage business logic — ONE script per stage
-│   ├── config.py                 # Typed dataclass accessors for params.yaml; schema validation
-│   ├── metrics.py                # make_eval_dataset() helper for mlflow.evaluate()
-│   ├── ingest/
-│   │   └── run.py                # Copy raw CSV → data/processed/raw.csv
-│   ├── validate/
-│   │   └── run.py                # Build GE expectations from params; halt on failure; write Data Docs
-│   ├── featurize/
-│   │   └── run.py                # Select features.columns from params; encode, split, fit+save pipeline
-│   ├── train_ml/
-│   │   └── run.py                # PyCaret compare+tune; autolog disabled; mlflow.evaluate(); save .pkl
-│   ├── train_dl/
-│   │   ├── run.py                # EvoTorch NAS → best arch written to params.yaml; Adam training N seeds; BCEWithLogitsLoss; early stopping; save .pth
-│   │   └── pyfunc.py             # mlflow.pyfunc.PythonModel wrapper for ShallowMLP
-│   ├── evaluate/
-│   │   └── run.py                # mlflow.evaluate() A/B test; comparison table; assert gates
-│   ├── tune/
-│   │   └── run.py                # Submit Katib Experiment CRD; poll until Succeeded; read best trial params; write best_params to params.yaml
-│   └── register/
-│       └── run.py                # Promote winner; write models/registry_receipt.json
-│
-├── pipelines/
-│   └── kubeflow/
-│       └── pipeline.py           # KFP v2 pipeline — 7 @dsl.component definitions, each calls dvc repro <stage>
-│
-├── k8s/
-│   └── pvc.yaml                  # hostPath PVC mounting project root at /app for all KFP pods
-│
-├── docker/
-│   └── Dockerfile                # Single image: python:3.12-slim + uv + deps; includes dvc.yaml
-│
-├── .gitattributes                # Forces LF line endings on *.py to prevent CRLF issues in containers
-│
-├── great_expectations/           # GE v1 context (generated by `gx init`)
-│   ├── great_expectations.yml
-│   └── expectations/
-│       └── crash_data_suite.json # Committed expectation suite
-│
-├── data/
-│   ├── raw/
-│   │   └── CGR_Crash_Data.csv    # DVC-tracked (existing file)
-│   ├── processed/                # DVC pipeline outputs
-│   │   ├── raw.csv
-│   │   ├── X_train.npy
-│   │   ├── X_val.npy
-│   │   ├── X_test.npy
-│   │   ├── y_train.npy
-│   │   ├── y_val.npy
-│   │   └── y_test.npy
-│   └── dvc-remote/               # Local DVC remote storage
-│
-├── models/                       # DVC-tracked pipeline outputs
-│   ├── preprocessing_pipeline.joblib
-│   └── best_ml_model.pkl
-│
-├── docs/
-│   ├── data_contract.md          # Column-level data contract: valid ranges, null thresholds, allowed values
-│   └── evaluation_report.json    # Metrics output of evaluate stage
-│
-├── airflow/
-│   └── dags/
-│       └── crash_ml_pipeline.py  # Airflow TaskFlow DAG — calls src/ stages
-│
-├── notebooks/                    # Exploration ONLY — not in any pipeline
-│   └── eda.ipynb
-│
-├── dvc.yaml                      # DVC pipeline: 8 stages with deps/outs/params
-├── .gitattributes                # *.py text eol=lf — prevents CRLF issues in Linux containers
-├── params.yaml                   # All configurable pipeline parameters
-├── .dvcignore
-├── pyproject.toml                # Updated with dvc, great-expectations, kfp
-└── specs/002-mlops-portfolio/
+src/
+├── config.py               # add VAEConfig, EncodeConfig; update ModelConfig for multi-class
+├── metrics.py              # add per-class P/R/F1 matrix helper
+├── ingest/
+│   ├── run.py
+│   └── ingester.py         # ✅ complete
+├── validate/
+│   ├── run.py
+│   └── validator.py        # ✅ complete
+├── featurize/
+│   ├── run.py
+│   ├── featurizer.py       # update: 3-class target encoding (PDO=0, Injury=1, Fatal=2)
+│   └── selector.py
+├── train_vae/              # NEW stage
+│   ├── run.py
+│   └── vae_trainer.py      # DVAETrainer: encoder + decoder + ELBO loss + MLflow logging
+├── encode/                 # NEW stage
+│   ├── run.py
+│   └── encoder.py          # LatentEncoder: freeze VAE encoder, produce Z splits, LSA augmentation
+├── train_ml/
+│   ├── run.py              # update: XGBoost config
+│   └── trainer.py          # REWRITE: XGBoost multi-class on Z vectors (remove PyCaret)
+├── train_dl/
+│   ├── run.py              # update: Z-vector input, 3-class output
+│   ├── trainer.py          # REWRITE: MLP on Z(32→64→3); remove EvoTorch NAS
+│   └── pyfunc.py           # update: 3-class MLP wrapper
+├── evaluate/
+│   ├── run.py
+│   └── evaluator.py        # update: multi-class gates; per-class matrix; fatal recall gate
+├── tune/
+│   ├── run.py
+│   └── tuner.py            # update: submit vae_experiment.yaml; fitness = val_macro_f1
+├── register/
+│   ├── run.py
+│   └── registrar.py
+└── tune/
+    └── trial.py            # update: retrain VAE + encode + winner classifier; log val_macro_f1
+
+great_expectations/gx/       # unchanged (GE layer)
+k8s/
+├── pvc.yaml                 # unchanged
+└── katib/
+    ├── vae_experiment.yaml  # NEW: β search space [0.5,1.0,2.0,4.0,8.0]
+    ├── ml_experiment.yaml   # DELETE or repurpose
+    └── dl_experiment.yaml   # DELETE or repurpose
+
+pipelines/kubeflow/
+└── pipeline.py              # update: add train_vae + encode components (10 total)
+
+tests/
+├── test_ingest.py           # ✅ complete
+├── test_validate.py         # ✅ complete
+├── test_featurize.py        # update: 3-class target
+├── test_train_vae.py        # NEW: ELBO convergence, encoder output shape
+├── test_encode.py           # NEW: Z shape, LSA augmentation ratio
+├── test_train_ml.py         # REWRITE: XGBoost multi-class on Z
+├── test_train_dl.py         # REWRITE: MLP on Z(32), 3-class output
+├── test_evaluate.py         # update: multi-class gates
+├── test_tune.py             # update: β search
+└── test_register.py
 ```
 
-**Structure Decision**: Single-project layout. `src/` holds all stage scripts; no
-`services/` or `api/` layer needed. `pipelines/` holds only the Kubeflow definition
-(Airflow DAGs stay in `airflow/dags/` per existing convention). All DVC outputs are
-under `data/processed/` and `models/` — both DVC-tracked, not git-tracked.
+**params.yaml additions/changes**:
+
+```yaml
+# NEW sections
+vae:
+  encoder_dims: [256, 128, 64]
+  latent_dim: 32              # fixed — not tunable
+  beta: 1.0                   # runtime default; overwritten by tune.best_params.beta
+  dropout_p: 0.15             # neural inpainting corruption rate
+  epochs: 200
+  patience: 20
+  batch_size: 512
+  lr: 0.001
+  experiment_name: crash-severity-vae
+
+encode:
+  lsa_target_ratio: 0.05      # augment fatal class to 5% of Z_train
+  min_fatal_samples: 10       # halt if fewer real fatal samples than this
+
+# MODIFIED sections
+model:
+  n_classes: 3                # was binary
+  macro_f1_threshold: 0.45    # was 0.55
+  fatal_recall_threshold: 0.30  # new — was minority_recall_threshold: 0.40
+  # remove: class_weight_neg, class_weight_pos (now computed at runtime from train split)
+
+dl:
+  # remove: hidden_1: 128, hidden_2: 64 (MLP now fixed Linear(32,64)→ReLU→Dropout→Linear(64,3))
+  input_dim: 32               # Z-vector dimensionality (matches vae.latent_dim)
+  hidden_dim: 64
+  dropout: 0.3
+  epochs: 100
+  patience: 10
+  batch_size: 256
+  lr: 0.001
+
+mlflow:
+  experiment_name_ml: crash-severity-ml
+  experiment_name_dl: crash-severity-dl
+  experiment_name_vae: crash-severity-vae
+  experiment_name_tune: crash-severity-tune
+  model_name: crash-severity
+  tracking_uri: mlruns/
+```
 
 ---
 
-## Notes
+## Scope of Changes
 
-- `train_ml` and `train_dl` are **independent but sequential** — no data dependency between them, but executed one after the other to avoid RAM contention (PyCaret + PyTorch simultaneously exceeds single-machine memory). Independence demonstrated via DAG structure.
-- The featurize stage produces a **3-way stratified split** (70% train / 15% val / 15% test) controlled by `params.yaml` keys `data.train_size`, `data.val_size`, `data.test_size`. `X_val`/`y_val` is used exclusively for NAS/HPO fitness and DL early stopping. `X_test`/`y_test` is strictly reserved for the final `evaluate` stage A/B test — it is never seen during training or search (constitution Principle II gate).
-- Both Airflow tasks and KFP components call `dvc repro <stage>` — not scripts directly. DVC caching and param tracking apply to all execution contexts.
-- KFP uses a single hostPath PVC mounting the project root at `/app`. `params.yaml` is mounted from PVC (overrides image default) so params change without image rebuilds. `dvc.yaml` is baked into the image (pipeline-as-code).
-- `MLFLOW_TRACKING_URI` is an absolute path in `params.yaml`. All stages call `mlflow.set_tracking_uri(config.mlflow.tracking_uri)` via `src/config.py` — no relative paths.
-- `mlflow.sklearn.autolog()` is **disabled** in `train_ml`. All metrics logged via `mlflow.evaluate()` for consistency across both models.
-- `src/config.py` provides typed dataclass accessors for `params.yaml`. No raw dict access in stage scripts.
-- `docs/data_contract.md` defines column requirements from EDA; encoded in `params.yaml` under `validation.*`; GE expectations generated programmatically from params.
-- `register` stage writes `models/registry_receipt.json` as its DVC `outs`.
-- Concurrent orchestrator execution is not supported — one pipeline run at a time.
-- The `tune` stage submits a Katib Experiment CRD to Kubernetes — each trial runs as a pod executing `src/tune/trial.py`; each trial = one MLflow run in `crash-severity-tune`. Search space defined in `k8s/katib/ml_experiment.yaml` and `k8s/katib/dl_experiment.yaml`. Best params written to `params.yaml` under `tune.best_params` after experiment completes.
-- For DL models, Katib searches training hyperparameters only (`lr`, `dropout`, `weight_decay`). The MLP architecture is fixed by the prior EvoTorch NAS run and written to `params.yaml` under `dl.best_arch`.
-- PyCaret `compare_models()` ~5–10 min/seed. Use `ab_test.seeds: [0,1,2]` during development.
+### New files (create from scratch)
+
+| File | Purpose |
+|---|---|
+| `src/train_vae/run.py` | Entry point: reads VAEConfig, calls DVAETrainer, logs to MLflow |
+| `src/train_vae/vae_trainer.py` | DVAETrainer class: encoder + decoder, ELBO loss, training loop |
+| `src/encode/run.py` | Entry point: reads EncodeConfig, calls LatentEncoder, writes Z arrays |
+| `src/encode/encoder.py` | LatentEncoder class: freeze encoder, produce Z splits, LSA augmentation |
+| `k8s/katib/vae_experiment.yaml` | Katib Experiment CRD — β search space [0.5,1.0,2.0,4.0,8.0] |
+| `tests/test_train_vae.py` | Boundary tests for DVAETrainer |
+| `tests/test_encode.py` | Boundary tests for LatentEncoder + LSA |
+
+### Modified files (targeted changes)
+
+| File | Change |
+|---|---|
+| `src/config.py` | Add `VAEConfig`, `EncodeConfig`; update `ModelConfig` (n_classes=3, new thresholds) |
+| `src/metrics.py` | Add `per_class_matrix()` helper returning JSON dict |
+| `src/featurize/featurizer.py` | Target encoding: `PDO→0`, `Injury→1`, `Fatal→2` from CRASHSEVER |
+| `src/train_ml/trainer.py` | Replace PyCaret with `xgboost.XGBClassifier` multi-class on Z input |
+| `src/train_ml/run.py` | Update config: reads Z paths, writes pkl, no PyCaret setup() |
+| `src/train_dl/trainer.py` | Remove EvoTorch NAS; MLP: `Linear(32,64)→ReLU→Dropout→Linear(64,3)` |
+| `src/train_dl/pyfunc.py` | Update wrapper for 3-class output |
+| `src/train_dl/run.py` | Update config: Z input, 3-class loss (CrossEntropyLoss) |
+| `src/evaluate/evaluator.py` | Update gates (F1>0.45, fatal recall>0.30); add per-class matrix |
+| `src/evaluate/run.py` | Update config: new gate thresholds from params |
+| `src/tune/tuner.py` | Submit `vae_experiment.yaml`; read `val_macro_f1` from Katib result |
+| `src/tune/trial.py` | Retrain VAE with β + encode + winner classifier; stdout: `val_macro_f1=<value>` |
+| `params.yaml` | Add vae.*, encode.*; update model.* for multi-class; update dl.* |
+| `dvc.yaml` | Add `train_vae` + `encode` stages; update `train_ml`/`train_dl` deps |
+| `pipelines/kubeflow/pipeline.py` | Add `train_vae_stage` + `encode_stage` components |
+| `CLAUDE.md` | Update architecture table (2 new stages), pipeline description, DL section |
+| `tests/test_train_ml.py` | Rewrite for XGBoost multi-class on Z input |
+| `tests/test_train_dl.py` | Rewrite for MLP on Z(32), 3-class output, no NAS |
+| `tests/test_evaluate.py` | Update for multi-class gates |
+| `tests/test_tune.py` | Update for β search, val_macro_f1 fitness |
+
+### Deleted files
+
+| File | Reason |
+|---|---|
+| `k8s/katib/ml_experiment.yaml` | Replaced by `vae_experiment.yaml` (β HPO, not ML HPO) |
+| `k8s/katib/dl_experiment.yaml` | Replaced by `vae_experiment.yaml` |
+| EvoTorch NAS code in `src/train_dl/` | NAS removed from architecture |
+
+### DVC stage additions
+
+```yaml
+# dvc.yaml additions
+
+train_vae:
+  cmd: python -m src.train_vae.run
+  deps:
+    - src/train_vae/
+    - data/processed/X_train.npy
+    - data/processed/X_val.npy
+    - data/processed/X_test.npy
+  params:
+    - params.yaml:
+        - vae
+        - mlflow
+  outs:
+    - models/vae_encoder.pth
+    - models/vae_decoder.pth
+
+encode:
+  cmd: python -m src.encode.run
+  deps:
+    - src/encode/
+    - models/vae_encoder.pth
+    - data/processed/X_train.npy
+    - data/processed/y_train.npy
+    - data/processed/X_val.npy
+    - data/processed/X_test.npy
+  params:
+    - params.yaml:
+        - encode
+        - vae.latent_dim
+  outs:
+    - data/processed/Z_train_augmented.npy
+    - data/processed/Z_val.npy
+    - data/processed/Z_test.npy
+    - data/processed/y_train_augmented.npy
+```
+
+---
 
 ## Complexity Tracking
 
-> No constitution violations — this section left intentionally empty.
+No constitution violations. No complexity justifications required.
+
+---
+
+## Phase 0 Research Summary
+
+See `research.md` — Decisions 11–15 added:
+- Decision 11: Denoising β-VAE architecture (encoder dims, ELBO loss, neural inpainting)
+- Decision 12: LSA (Latent-Space Augmentation) approach
+- Decision 13: XGBoost multi-class (replaces PyCaret)
+- Decision 14: Multi-class target encoding
+- Decision 15: Updated `params.yaml` structure for VAE pipeline
+
+---
+
+## Phase 1 Design Summary
+
+- `data-model.md` — fully rewritten for 10-stage VAE pipeline
+- `contracts/stage-interface.md` — added `train_vae` + `encode` stage contracts; updated `train_ml`, `train_dl`, `evaluate` for new architecture
+- `quickstart.md` — updated for 10-stage pipeline, new artifact paths
+- Agent context: run `.specify/scripts/powershell/update-agent-context.ps1 -AgentType claude`
+
+---
+
+## Pre-Tasks Actions Required
+
+Before `/speckit.tasks`:
+
+1. **Update `UBIQUITOUS_LANGUAGE.md`** via `/ubiquitous-language` with new terms:
+   - β-VAE / Denoising β-VAE / DVAE
+   - ELBO (Evidence Lower Bound)
+   - Latent Space / Latent Vector (Z)
+   - Latent-Space Augmentation (LSA)
+   - Z_train_augmented / Z_val / Z_test
+   - latent_dim
+   - PDO (Property Damage Only)
+   - Fatal class
+   - Neural inpainting
+
+2. **Verify no glossary ambiguities** before proceeding.
