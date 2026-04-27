@@ -96,11 +96,18 @@ class ColumnContract:
     min: float | None = None
     max: float | None = None
     allowed_values: list[Any] | None = None
+    sentinel_values: list[Any] | None = None
 
 
 @dataclass
 class ValidationConfig:
     columns: dict[str, ColumnContract] = field(default_factory=dict)
+
+
+@dataclass
+class GreatExpectationsConfig:
+    suite_name: str
+    datasource_name: str
 
 
 @dataclass
@@ -114,6 +121,7 @@ class ProjectConfig:
     mlflow: MLflowConfig
     ab_test: ABTestConfig
     feature_selection: FeatureSelectionConfig
+    great_expectations: GreatExpectationsConfig
     validation: ValidationConfig = field(default_factory=ValidationConfig)
 
 
@@ -122,7 +130,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
 
-    required = {"features", "data", "model", "dl", "vae", "encode", "mlflow", "ab_test"}
+    required = {"features", "data", "model", "dl", "vae", "encode", "mlflow", "ab_test", "great_expectations"}
     missing = required - raw.keys()
     if missing:
         raise KeyError(f"params.yaml missing required sections: {missing}")
@@ -139,6 +147,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
             **raw.get("feature_selection", {})
         ),
         ab_test=ABTestConfig(**raw["ab_test"]),
+        great_expectations=GreatExpectationsConfig(**raw["great_expectations"]),
         validation=ValidationConfig(
             columns={
                 col: ColumnContract(**spec)

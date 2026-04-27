@@ -9,16 +9,16 @@ stages:
       size: 107949687
     - path: great_expectations/gx/great_expectations.yml
       hash: md5
-      md5: 04c8eaa5bc6c7a8feec6b6c465624872
-      size: 3572
+      md5: 76d7ad430aa35f695806308dea06eb20
+      size: 3973
     - path: src/validate/run.py
       hash: md5
-      md5: 15c4a8bef28ea5c62cb48dabe62867dc
-      size: 795
+      md5: ceb761013fd015be4110c12d6884c8aa
+      size: 2289
     - path: src/validate/validator.py
       hash: md5
-      md5: 5ca70b88de5a9498212d38b6fed3bb8c
-      size: 1045
+      md5: daf13ece2b08e95892a570708c28f5d2
+      size: 4417
     params:
       params.yaml:
         great_expectations.datasource_name: crash_data
@@ -28,7 +28,9 @@ stages:
             dtype: int
             min: 0
             max: 23
-            mostly: 1.0
+            sentinel_values:
+            - 99
+            mostly: 0.996
           DAYOFWEEK:
             dtype: str
             allowed_values:
@@ -106,9 +108,11 @@ stages:
             mostly: 1.0
           SPEEDLIMIT:
             dtype: int
-            min: 5
-            max: 70
-            mostly: 0.99
+            min: 0
+            max: 98
+            sentinel_values:
+            - 99
+            mostly: 0.989
           RDNUMLANES:
             dtype: int
             min: 0
@@ -152,8 +156,10 @@ stages:
             mostly: 1.0
           DRIVER1AGE:
             dtype: int
-            min: 14
+            min: 0
             max: 100
+            sentinel_values:
+            - 999
             mostly: 0.85
           DRIVER1SEX:
             dtype: str
@@ -164,8 +170,10 @@ stages:
             mostly: 1.0
           DRIVER2AGE:
             dtype: int
-            min: 14
+            min: 0
             max: 100
+            sentinel_values:
+            - 999
             mostly: 0.65
           DRIVER2SEX:
             dtype: str
@@ -284,6 +292,16 @@ stages:
             - Fatal
             - Injury
             - Property Damage Only
+            mostly: 1.0
+          X:
+            dtype: float
+            min: -85.76
+            max: -85.56
+            mostly: 1.0
+          Y:
+            dtype: float
+            min: 42.88
+            max: 43.04
             mostly: 1.0
     outs:
     - path: data/processed/.validation_passed

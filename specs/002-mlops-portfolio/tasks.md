@@ -117,8 +117,8 @@
   - Use stub cmds for incomplete stages so the full 10-stage DAG is defined from the start
 - [x] T023 [US1] Run `dvc repro featurize` — confirm sentinel created, then all numpy arrays and joblib written; `dvc status` → all cached
 - [x] T024 [US1] Verify caching: run `dvc repro` again with no changes — all stages report `Skipped. Stage is cached.`
-- [ ] T025 [P] [US1] Verify param-triggered re-run: change `data.val_size` in `params.yaml` → `dvc repro featurize` re-runs only featurize; revert
-- [ ] T026 [P] [US1] Run `dvc push` — confirm artifacts synced to `data/dvc-remote/`
+- [x] T025 [P] [US1] Verify param-triggered re-run: change `data.val_size` in `params.yaml` → `dvc repro featurize` re-runs only featurize; revert
+- [x] T026 [P] [US1] Run `dvc push` — confirm artifacts synced to `data/dvc-remote/`
 - [ ] T031 [US2] Run `dvc repro validate` on clean crash CSV — confirm exit 0 and Data Docs HTML at `great_expectations/gx/uncommitted/data_docs/index.html`
 - [ ] T032 [US2] Open Data Docs HTML — verify not-null, range, and value-set expectations all appear with pass/fail counts
 - [ ] T033 [US2] Test failure path: add row with SPEEDLIMIT=500; `python -m src.validate.run` → confirm exit 1 and expectation name in stdout; restore CSV

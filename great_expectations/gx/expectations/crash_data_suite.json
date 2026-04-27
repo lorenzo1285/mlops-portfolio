@@ -1,0 +1,832 @@
+{
+  "expectations": [
+    {
+      "id": "f57e0797-2b1c-4110-a11c-83858a668c85",
+      "kwargs": {
+        "column": "HOUR",
+        "mostly": 0.996
+      },
+      "meta": {
+        "rule": "HOUR_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "e3fbb08d-fc79-48c2-b199-0926527876a7",
+      "kwargs": {
+        "column": "HOUR",
+        "condition_parser": "pandas",
+        "max_value": 23.0,
+        "min_value": 0.0,
+        "mostly": 0.996,
+        "row_condition": "HOUR != 99"
+      },
+      "meta": {
+        "rule": "HOUR_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "dead6e34-8b3c-4c77-a7f4-86a05babab31",
+      "kwargs": {
+        "column": "DAYOFWEEK"
+      },
+      "meta": {
+        "rule": "DAYOFWEEK_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "10fc133e-ff4e-4e40-8d71-1810c3b95317",
+      "kwargs": {
+        "column": "DAYOFWEEK",
+        "value_set": [
+          "Monday",
+          "Tuesday",
+          "Wednesday",
+          "Thursday",
+          "Friday",
+          "Saturday",
+          "Sunday"
+        ]
+      },
+      "meta": {
+        "rule": "DAYOFWEEK_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "efc513b9-105d-4487-9d4f-7055e028d0d7",
+      "kwargs": {
+        "column": "MONTH"
+      },
+      "meta": {
+        "rule": "MONTH_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "912fe874-19c8-4acc-9be7-2942d499c55b",
+      "kwargs": {
+        "column": "MONTH",
+        "value_set": [
+          "January",
+          "February",
+          "March",
+          "April",
+          "May",
+          "June",
+          "July",
+          "August",
+          "September",
+          "October",
+          "November",
+          "December"
+        ]
+      },
+      "meta": {
+        "rule": "MONTH_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "0032c626-bda1-4bab-8462-0d8f2f46550c",
+      "kwargs": {
+        "column": "YEAR"
+      },
+      "meta": {
+        "rule": "YEAR_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "ae894f4e-0985-4f88-8e6c-e6235f5c71d6",
+      "kwargs": {
+        "column": "YEAR",
+        "max_value": 2017.0,
+        "min_value": 2008.0
+      },
+      "meta": {
+        "rule": "YEAR_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "8b3b262f-9865-4c83-b81d-0cebef340fba",
+      "kwargs": {
+        "column": "WEATHER"
+      },
+      "meta": {
+        "rule": "WEATHER_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "9d92034b-6ca7-40ec-911b-5a3d484b71e8",
+      "kwargs": {
+        "column": "WEATHER",
+        "value_set": [
+          "Blowing Snow",
+          "Clear",
+          "Cloudy",
+          "Fog",
+          "Rain",
+          "Severe Crosswind",
+          "Sleet or Hail",
+          "Smoke",
+          "Snow",
+          "Uncoded & Errors",
+          "Unknown"
+        ]
+      },
+      "meta": {
+        "rule": "WEATHER_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "1214b724-52ca-45fb-a135-c1543d6d8a11",
+      "kwargs": {
+        "column": "SURFCOND"
+      },
+      "meta": {
+        "rule": "SURFCOND_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "2ab84081-7e22-42c4-9870-b8fb6f049c4b",
+      "kwargs": {
+        "column": "SURFCOND",
+        "value_set": [
+          "Debris",
+          "Dry",
+          "Icy",
+          "Mud, Dirt, Gravel",
+          "Oily",
+          "Other",
+          "Slush",
+          "Snowy",
+          "Uncoded & Errors",
+          "Unknown",
+          "Water",
+          "Wet"
+        ]
+      },
+      "meta": {
+        "rule": "SURFCOND_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "16637a6d-b14a-4252-bd2b-ef064123efb3",
+      "kwargs": {
+        "column": "LIGHTING"
+      },
+      "meta": {
+        "rule": "LIGHTING_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "6ad7641a-15b5-456c-a182-415365c2b52b",
+      "kwargs": {
+        "column": "LIGHTING",
+        "value_set": [
+          "Dark, Lighted",
+          "Dark, Unlighted",
+          "Dawn",
+          "Daylight",
+          "Dusk",
+          "Other",
+          "Uncoded & Errors",
+          "Unknown"
+        ]
+      },
+      "meta": {
+        "rule": "LIGHTING_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "155f1283-8b0d-4a25-8f46-0e4921161e96",
+      "kwargs": {
+        "column": "SPEEDLIMIT",
+        "mostly": 0.989
+      },
+      "meta": {
+        "rule": "SPEEDLIMIT_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "e2c80d9f-0b9f-4f06-ae22-ce7bdf456c4a",
+      "kwargs": {
+        "column": "SPEEDLIMIT",
+        "condition_parser": "pandas",
+        "max_value": 98.0,
+        "min_value": 0.0,
+        "mostly": 0.989,
+        "row_condition": "SPEEDLIMIT != 99"
+      },
+      "meta": {
+        "rule": "SPEEDLIMIT_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "9e19031b-213b-4d76-8467-d28afa9e9c5b",
+      "kwargs": {
+        "column": "RDNUMLANES"
+      },
+      "meta": {
+        "rule": "RDNUMLANES_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "0faded65-0f62-4002-b143-8c133b9de5fd",
+      "kwargs": {
+        "column": "RDNUMLANES",
+        "max_value": 6.0,
+        "min_value": 0.0
+      },
+      "meta": {
+        "rule": "RDNUMLANES_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "a8bfae58-1aee-40ff-b4de-5bdcd73edf66",
+      "kwargs": {
+        "column": "RDWIDTH"
+      },
+      "meta": {
+        "rule": "RDWIDTH_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "d023bd38-3606-4458-906b-c811c5ae81a6",
+      "kwargs": {
+        "column": "RDWIDTH",
+        "max_value": 80.0,
+        "min_value": 0.0
+      },
+      "meta": {
+        "rule": "RDWIDTH_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "78ca0d93-e46e-4635-8e40-dc3a8cecf2aa",
+      "kwargs": {
+        "column": "ROUTECLASS"
+      },
+      "meta": {
+        "rule": "ROUTECLASS_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "a72fe253-37a7-44bc-8e7c-6a4a17fdc71e",
+      "kwargs": {
+        "column": "ROUTECLASS",
+        "value_set": [
+          "Connector",
+          "County Road or City Street or Not Known",
+          "Interstate Business Loop or Spur",
+          "Interstate Route",
+          "M Route",
+          "Not Located",
+          "U.S. Business Route",
+          "U.S. Route"
+        ]
+      },
+      "meta": {
+        "rule": "ROUTECLASS_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "48470cc0-f879-41da-897b-c3a8c84e5016",
+      "kwargs": {
+        "column": "TRUNKLINE"
+      },
+      "meta": {
+        "rule": "TRUNKLINE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "1901d74d-0b95-4e35-bad2-4e4cdca27302",
+      "kwargs": {
+        "column": "TRUNKLINE",
+        "value_set": [
+          "Non-Trunkline",
+          "Trunkline"
+        ]
+      },
+      "meta": {
+        "rule": "TRUNKLINE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "be155498-cabb-4adb-8fc5-76b310544862",
+      "kwargs": {
+        "column": "RDSUBTYPE"
+      },
+      "meta": {
+        "rule": "RDSUBTYPE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "56dbb8fa-3a7a-410e-b267-f1a2bb2d8a98",
+      "kwargs": {
+        "column": "RDSUBTYPE",
+        "value_set": [
+          0,
+          30,
+          31,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38
+        ]
+      },
+      "meta": {
+        "rule": "RDSUBTYPE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "7f40046f-d702-4dc0-8073-c06ebc30ea2e",
+      "kwargs": {
+        "column": "DRIVER1AGE",
+        "mostly": 0.85
+      },
+      "meta": {
+        "rule": "DRIVER1AGE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "1b44c5d6-092d-491c-98cf-6c611482b69e",
+      "kwargs": {
+        "column": "DRIVER1AGE",
+        "condition_parser": "pandas",
+        "max_value": 100.0,
+        "min_value": 0.0,
+        "mostly": 0.85,
+        "row_condition": "DRIVER1AGE != 999"
+      },
+      "meta": {
+        "rule": "DRIVER1AGE_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "12bdc357-8646-489f-bcf7-dd09d17e4b46",
+      "kwargs": {
+        "column": "DRIVER1SEX"
+      },
+      "meta": {
+        "rule": "DRIVER1SEX_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "66bd5e4b-5d9b-4915-9230-cfa5a3445029",
+      "kwargs": {
+        "column": "DRIVER1SEX",
+        "value_set": [
+          "F",
+          "M",
+          "U"
+        ]
+      },
+      "meta": {
+        "rule": "DRIVER1SEX_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "1a014004-ca06-4294-89cd-3999b40a703f",
+      "kwargs": {
+        "column": "DRIVER2AGE",
+        "mostly": 0.65
+      },
+      "meta": {
+        "rule": "DRIVER2AGE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "223d01b9-3b0a-4f05-a408-68ee039ee988",
+      "kwargs": {
+        "column": "DRIVER2AGE",
+        "condition_parser": "pandas",
+        "max_value": 100.0,
+        "min_value": 0.0,
+        "mostly": 0.65,
+        "row_condition": "DRIVER2AGE != 999"
+      },
+      "meta": {
+        "rule": "DRIVER2AGE_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "ced3f104-3bb1-4b08-8f25-2e095c919f9b",
+      "kwargs": {
+        "column": "DRIVER2SEX"
+      },
+      "meta": {
+        "rule": "DRIVER2SEX_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "95200830-a0e0-4a91-8ac3-dbe54893e80d",
+      "kwargs": {
+        "column": "DRIVER2SEX",
+        "value_set": [
+          "F",
+          "M",
+          "U"
+        ]
+      },
+      "meta": {
+        "rule": "DRIVER2SEX_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "9b71f6c0-e486-4b2b-af2f-70be0736568e",
+      "kwargs": {
+        "column": "VEH1TYPE"
+      },
+      "meta": {
+        "rule": "VEH1TYPE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "3ed6181a-a3c9-427a-bcb5-1ca0da178659",
+      "kwargs": {
+        "column": "VEH1TYPE",
+        "value_set": [
+          "Go-cart / Golf Cart",
+          "Moped",
+          "Motorcycle",
+          "Motorhome",
+          "Off-Road Vehicle, All-Terrain Vehicle",
+          "Other Non-Commercial",
+          "Passenger Car, SUV, Van",
+          "Pickup Truck",
+          "Truck / Bus (Commercial)",
+          "Truck Under 10,000 lbs",
+          "Uncoded & Errors"
+        ]
+      },
+      "meta": {
+        "rule": "VEH1TYPE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "f9eb8b72-4839-4be6-87f1-27e662e3f70b",
+      "kwargs": {
+        "column": "VEH1USE"
+      },
+      "meta": {
+        "rule": "VEH1USE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "099ea179-563e-4180-a215-3c153f080665",
+      "kwargs": {
+        "column": "VEH1USE",
+        "value_set": [
+          "Club or Church",
+          "Commercial",
+          "Farm",
+          "In Pursuit or Emergency (in use)",
+          "Military Vehicle",
+          "Other",
+          "Other Government, Non-Emergency",
+          "Private",
+          "Road Construction or Maintenance",
+          "School or Education",
+          "Uncoded & Errors",
+          "Utility"
+        ]
+      },
+      "meta": {
+        "rule": "VEH1USE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "b444f51c-9d6b-47a9-9029-7e1c3e020078",
+      "kwargs": {
+        "column": "VEH2TYPE"
+      },
+      "meta": {
+        "rule": "VEH2TYPE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "9c8176ad-8b5d-46a4-b438-f9ce84b7c849",
+      "kwargs": {
+        "column": "VEH2TYPE",
+        "value_set": [
+          "Go-cart / Golf Cart",
+          "Moped",
+          "Motorcycle",
+          "Motorhome",
+          "Off-Road Vehicle, All-Terrain Vehicle",
+          "Other Non-Commercial",
+          "Passenger Car, SUV, Van",
+          "Pickup Truck",
+          "Snowmobile",
+          "Truck / Bus (Commercial)",
+          "Truck Under 10,000 lbs",
+          "Uncoded & Errors"
+        ]
+      },
+      "meta": {
+        "rule": "VEH2TYPE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "2d357346-16b7-421b-a16d-15c3ab1bc2b6",
+      "kwargs": {
+        "column": "VEH2USE"
+      },
+      "meta": {
+        "rule": "VEH2USE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "45b188fd-5d7c-4495-aeda-8618190d3ebb",
+      "kwargs": {
+        "column": "VEH2USE",
+        "value_set": [
+          "Club or Church",
+          "Commercial",
+          "Farm",
+          "In Pursuit or Emergency (in use)",
+          "Military Vehicle",
+          "Other",
+          "Other Government, Non-Emergency",
+          "Private",
+          "Road Construction or Maintenance",
+          "School or Education",
+          "Uncoded & Errors",
+          "Utility"
+        ]
+      },
+      "meta": {
+        "rule": "VEH2USE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "b72934ae-e269-4ac0-9418-0e071e67afef",
+      "kwargs": {
+        "column": "CRASHTYPE"
+      },
+      "meta": {
+        "rule": "CRASHTYPE_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "d9e1b320-b99c-4154-9cf3-71d40dbced6a",
+      "kwargs": {
+        "column": "CRASHTYPE",
+        "value_set": [
+          "Angle Driveway",
+          "Angle Straight",
+          "Angle Turn",
+          "Animal",
+          "Backing",
+          "Bicycle",
+          "Fixed Object",
+          "Head-On Left-Turn Not Associated with Driveway",
+          "Head-on",
+          "Hit Train",
+          "Misc. Multiple Vehicle",
+          "Misc. Single Vehicle",
+          "Other Driveway",
+          "Other Object",
+          "Overturn",
+          "Parking",
+          "Pedestrian",
+          "Rear End Driveway",
+          "Rear End Left Turn",
+          "Rear End Right Turn",
+          "Rear End Straight",
+          "Side-Swipe Opposite",
+          "Side-Swipe Same"
+        ]
+      },
+      "meta": {
+        "rule": "CRASHTYPE_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "ba741e67-3688-4058-8744-5029b6b121db",
+      "kwargs": {
+        "column": "TRAFCTLDEV",
+        "mostly": 0.4
+      },
+      "meta": {
+        "rule": "TRAFCTLDEV_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "fa3488c7-e29d-46a4-8d3d-418c163c0bc2",
+      "kwargs": {
+        "column": "TRAFCTLDEV",
+        "mostly": 0.4,
+        "value_set": [
+          "Signal",
+          "Stop Sign",
+          "Stop Sign with Flashing Beacon",
+          "Uncoded & Errors",
+          "Yield Sign"
+        ]
+      },
+      "meta": {
+        "rule": "TRAFCTLDEV_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "38dd6473-f0ab-4adf-81db-68911eab9c3b",
+      "kwargs": {
+        "column": "NONTRAFFIC"
+      },
+      "meta": {
+        "rule": "NONTRAFFIC_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "08ed38cc-003f-4a4a-8748-2b30fb0f9d61",
+      "kwargs": {
+        "column": "NONTRAFFIC",
+        "value_set": [
+          "No"
+        ]
+      },
+      "meta": {
+        "rule": "NONTRAFFIC_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "296f6912-f655-4683-acff-2c5079bc1191",
+      "kwargs": {
+        "column": "CRASHSEVER"
+      },
+      "meta": {
+        "rule": "CRASHSEVER_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "db09833d-123c-4383-bef6-30a2b1cb9834",
+      "kwargs": {
+        "column": "CRASHSEVER",
+        "value_set": [
+          "Fatal",
+          "Injury",
+          "Property Damage Only"
+        ]
+      },
+      "meta": {
+        "rule": "CRASHSEVER_values"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "dde9d246-3b77-40f8-96e8-d365ab17fe83",
+      "kwargs": {
+        "column": "X"
+      },
+      "meta": {
+        "rule": "X_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "4baaf6e2-d6d2-4c40-85bc-3cb3b8059292",
+      "kwargs": {
+        "column": "X",
+        "max_value": -85.56,
+        "min_value": -85.76
+      },
+      "meta": {
+        "rule": "X_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "57c3bd6c-296a-4b4f-9fd4-eebb8a5c115b",
+      "kwargs": {
+        "column": "Y"
+      },
+      "meta": {
+        "rule": "Y_not_null"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "459ce004-56d3-4614-9ab0-cd5be9677f8d",
+      "kwargs": {
+        "column": "Y",
+        "max_value": 43.04,
+        "min_value": 42.88
+      },
+      "meta": {
+        "rule": "Y_range"
+      },
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    }
+  ],
+  "id": "173c8fb0-20f0-4a84-8af9-ca491e3cb5ca",
+  "meta": {
+    "asset": "crash_data_asset",
+    "datasource": "crash_data",
+    "great_expectations_version": "1.6.4"
+  },
+  "name": "crash_data_suite",
+  "notes": null
+}

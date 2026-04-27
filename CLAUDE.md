@@ -221,7 +221,7 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 - **XV** TDD for all `src/` code — red→green→refactor, vertical slices only
 - **XVI** GE is the exclusive data quality assertion layer — no ad-hoc checks in stage code or tests; boundary tests downstream of `validate` use `data/processed/raw.csv`, not `data/raw/`
 
-Constitution version: **v2.7.1** (last amended 2026-04-24)
+Constitution version: **v3.2.0** (last amended 2026-04-27)
 
 ## Design Rules (session-established)
 

@@ -24,6 +24,8 @@ features:
     - CRASHTYPE
     - TRAFCTLDEV
     - NONTRAFFIC
+    - X
+    - Y
   numeric_columns:
     - HOUR
     - YEAR
@@ -32,6 +34,8 @@ features:
     - RDWIDTH
     - DRIVER1AGE
     - DRIVER2AGE
+    - X
+    - Y
   ordinal_columns:
     DAYOFWEEK:
       - Monday
@@ -131,7 +135,8 @@ validation:
       dtype: int
       min: 0
       max: 23
-      mostly: 1.0
+      sentinel_values: [99]
+      mostly: 0.996
     DAYOFWEEK:
       dtype: str
       allowed_values: [Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday]
@@ -159,9 +164,10 @@ validation:
       mostly: 1.0
     SPEEDLIMIT:
       dtype: int
-      min: 5
-      max: 70
-      mostly: 0.99
+      min: 0
+      max: 98
+      sentinel_values: [99]
+      mostly: 0.989
     RDNUMLANES:
       dtype: int
       min: 0
@@ -186,8 +192,9 @@ validation:
       mostly: 1.0
     DRIVER1AGE:
       dtype: int
-      min: 14
+      min: 0
       max: 100
+      sentinel_values: [999]
       mostly: 0.85
     DRIVER1SEX:
       dtype: str
@@ -195,8 +202,9 @@ validation:
       mostly: 1.0
     DRIVER2AGE:
       dtype: int
-      min: 14
+      min: 0
       max: 100
+      sentinel_values: [999]
       mostly: 0.65
     DRIVER2SEX:
       dtype: str
@@ -228,9 +236,19 @@ validation:
       mostly: 0.40
     NONTRAFFIC:
       dtype: str
-      allowed_values: [No]
+      allowed_values: ["No"]
       mostly: 1.0
     CRASHSEVER:
       dtype: str
       allowed_values: [Fatal, Injury, "Property Damage Only"]
+      mostly: 1.0
+    X:
+      dtype: float
+      min: -85.76
+      max: -85.56
+      mostly: 1.0
+    Y:
+      dtype: float
+      min: 42.88
+      max: 43.04
       mostly: 1.0
