@@ -9,16 +9,16 @@ stages:
       size: 107949687
     - path: great_expectations/gx/great_expectations.yml
       hash: md5
-      md5: 01d45aa44076a4d1937de4314e31a32e
+      md5: 05973b34614615bc86033d41e82bac27
       size: 3973
     - path: src/validate/run.py
       hash: md5
-      md5: ceb761013fd015be4110c12d6884c8aa
-      size: 2289
+      md5: b2381a25dac59612e15c2b9192667752
+      size: 2380
     - path: src/validate/validator.py
       hash: md5
-      md5: daf13ece2b08e95892a570708c28f5d2
-      size: 4417
+      md5: 650d8c209fd5d96334f2c47f82766642
+      size: 4771
     params:
       params.yaml:
         great_expectations.datasource_name: crash_data
@@ -341,8 +341,8 @@ stages:
       size: 107591014
     - path: src/config.py
       hash: md5
-      md5: 98170d84670ef66b261fda8c75344e31
-      size: 3398
+      md5: b2cf6d63c74a23aa3add38c50853280a
+      size: 3683
     - path: src/featurize/featurizer.py
       hash: md5
       md5: a7415cc2ce88168cca7b089d76b0cbea
@@ -390,6 +390,8 @@ stages:
         - CRASHTYPE
         - TRAFCTLDEV
         - NONTRAFFIC
+        - X
+        - Y
         features.numeric_columns:
         - HOUR
         - YEAR
@@ -398,6 +400,8 @@ stages:
         - RDWIDTH
         - DRIVER1AGE
         - DRIVER2AGE
+        - X
+        - Y
         features.ordinal_columns:
           DAYOFWEEK:
           - Monday
@@ -428,16 +432,16 @@ stages:
     outs:
     - path: data/processed/X_test.npy
       hash: md5
-      md5: b8cf263b0e53367f6ab4ea70475e76f8
-      size: 2140352
+      md5: 33d4f39122927dadc5a314309d1605fc
+      size: 2318704
     - path: data/processed/X_train.npy
       hash: md5
-      md5: 94f8de7f4d3b33198ac47877781ab7c5
-      size: 9987008
+      md5: e88955d45b25309af5f466dba3510f60
+      size: 10819248
     - path: data/processed/X_val.npy
       hash: md5
-      md5: dc043dae16276c4bdc4e021f10d47662
-      size: 2140352
+      md5: 4f485a0802260995ea181d1d505547ad
+      size: 2318704
     - path: data/processed/y_test.npy
       hash: md5
       md5: 84689db1cdce0e584f0f6c791f5a1fa4
@@ -452,5 +456,56 @@ stages:
       size: 89304
     - path: models/preprocessing_pipeline.joblib
       hash: md5
-      md5: 9022cb7a7deadb9f8509ddcaf9abdd59
-      size: 12386
+      md5: fd487056d2df0c631df36f85118765e4
+      size: 12498
+  train_vae:
+    cmd: python -m src.train_vae.run
+    deps:
+    - path: data/processed/X_test.npy
+      hash: md5
+      md5: 33d4f39122927dadc5a314309d1605fc
+      size: 2318704
+    - path: data/processed/X_train.npy
+      hash: md5
+      md5: e88955d45b25309af5f466dba3510f60
+      size: 10819248
+    - path: data/processed/X_val.npy
+      hash: md5
+      md5: 4f485a0802260995ea181d1d505547ad
+      size: 2318704
+    - path: src/config.py
+      hash: md5
+      md5: b2cf6d63c74a23aa3add38c50853280a
+      size: 3683
+    - path: src/train_vae/run.py
+      hash: md5
+      md5: 358416794e0c43602ec639b4368a1537
+      size: 2518
+    - path: src/train_vae/vae_trainer.py
+      hash: md5
+      md5: 0b7785527d8f96b1579188ad018a111d
+      size: 12330
+    params:
+      params.yaml:
+        mlflow.tracking_uri: mlruns/
+        vae.batch_size: 512
+        vae.beta: 1.0
+        vae.dropout_p: 0.15
+        vae.encoder_dims:
+        - 256
+        - 128
+        - 64
+        vae.epochs: 200
+        vae.experiment_name: crash-severity-vae
+        vae.latent_dim: 32
+        vae.lr: 0.001
+        vae.patience: 20
+    outs:
+    - path: models/vae_decoder.pth
+      hash: md5
+      md5: 2b9c95c7a65381b3becb20fc5c908738
+      size: 209545
+    - path: models/vae_encoder.pth
+      hash: md5
+      md5: 9b5a25784a277d57e98ebd3d95f51abb
+      size: 218507

@@ -134,11 +134,11 @@
 
 **Independent Test**: `dvc repro train_vae` → `models/vae_encoder.pth` + `models/vae_decoder.pth` exist. MLflow UI → `crash-severity-vae` → `vae_elbo` metric decreases over training epochs.
 
-- [ ] T086 [US3] **RED** — Write `tests/test_train_vae.py`: instantiate `DVAETrainer` with minimal `VAEConfig` (small encoder_dims, few epochs, latent_dim=4) and dummy `X_all` (100 × 10 array); call `trainer.train(X_all)` → assert returns `VAETrainResult` with `best_epoch >= 1`; assert `vae_encoder.pth` and `vae_decoder.pth` are written to the configured paths; assert an MLflow run exists in `crash-severity-vae` with `vae_elbo` logged at `step=0` and `step=best_epoch`; assert encoder output shape is `(n_samples, latent_dim)` when called on `X_all`. Run — confirm FAIL.
-- [ ] T087 [US3] **GREEN** — Implement `src/train_vae/vae_trainer.py`: define `Encoder(nn.Module)` (Linear → LayerNorm → ReLU stack with configurable dims; final Linear(last_dim, latent_dim) for μ and log_σ²); define `Decoder(nn.Module)` (mirrors encoder dims in reverse; final Linear output matches input_dim); define `DenoisingBetaVAE(nn.Module)` with `forward(x)` applying `F.dropout(x, p=dropout_p, training=True)` then encoder → reparameterize → decoder; `reparameterize(mu, log_var)` returns `mu + eps * std`; ELBO loss: `F.mse_loss(x_hat, x_clean) + beta * kl_loss` (reconstruction target is clean `x`, not corrupted); implement `DVAETrainer.train(X_all: np.ndarray) → VAETrainResult`: build `TensorDataset` from full X (no Y); Adam optimiser; training loop with `nn.Dropout` inpainting active; per-epoch val ELBO on a held-out 10% slice of X_all; early stopping on val ELBO (patience from config); save best encoder/decoder checkpoints; log per-epoch `vae_elbo`, `vae_reconstruction_loss`, `vae_kl_loss` with `step=epoch`; log params; return `VAETrainResult(best_epoch, final_elbo, encoder_path, decoder_path, run_id)`
-- [ ] T088 [US3] **GREEN** — Create `src/train_vae/run.py`: load config via `src/config.py`; read `TRAIN_X_PATH`, `VAL_X_PATH`, `TEST_X_PATH`, `ENCODER_OUTPUT_PATH`, `DECODER_OUTPUT_PATH`, `MLFLOW_TRACKING_URI` env vars with defaults from config; concatenate all three X arrays (no Y); set `mlflow.set_tracking_uri`; instantiate `DVAETrainer(config.vae, config.mlflow)`; call `.train(X_all)`; exit 0 on success, exit 1 on error
-- [ ] T089 [US3] Run `dvc repro train_vae` — confirm both `.pth` artifacts exist and MLflow `crash-severity-vae` experiment has a completed run
-- [ ] T090 [US3] Open MLflow UI → `crash-severity-vae` → select run → Metrics → `vae_elbo` — confirm line chart shows decreasing trend; confirm `vae_reconstruction_loss` and `vae_kl_loss` both logged per epoch
+- [x] T086 [US3] **RED** — Write `tests/test_train_vae.py`: instantiate `DVAETrainer` with minimal `VAEConfig` (small encoder_dims, few epochs, latent_dim=4) and dummy `X_all` (100 × 10 array); call `trainer.train(X_all)` → assert returns `VAETrainResult` with `best_epoch >= 1`; assert `vae_encoder.pth` and `vae_decoder.pth` are written to the configured paths; assert an MLflow run exists in `crash-severity-vae` with `vae_elbo` logged at `step=0` and `step=best_epoch`; assert encoder output shape is `(n_samples, latent_dim)` when called on `X_all`. Run — confirm FAIL.
+- [x] T087 [US3] **GREEN** — Implement `src/train_vae/vae_trainer.py`: define `Encoder(nn.Module)` (Linear → LayerNorm → ReLU stack with configurable dims; final Linear(last_dim, latent_dim) for μ and log_σ²); define `Decoder(nn.Module)` (mirrors encoder dims in reverse; final Linear output matches input_dim); define `DenoisingBetaVAE(nn.Module)` with `forward(x)` applying `F.dropout(x, p=dropout_p, training=True)` then encoder → reparameterize → decoder; `reparameterize(mu, log_var)` returns `mu + eps * std`; ELBO loss: `F.mse_loss(x_hat, x_clean) + beta * kl_loss` (reconstruction target is clean `x`, not corrupted); implement `DVAETrainer.train(X_all: np.ndarray) → VAETrainResult`: build `TensorDataset` from full X (no Y); Adam optimiser; training loop with `nn.Dropout` inpainting active; per-epoch val ELBO on a held-out 10% slice of X_all; early stopping on val ELBO (patience from config); save best encoder/decoder checkpoints; log per-epoch `vae_elbo`, `vae_reconstruction_loss`, `vae_kl_loss` with `step=epoch`; log params; return `VAETrainResult(best_epoch, final_elbo, encoder_path, decoder_path, run_id)`
+- [x] T088 [US3] **GREEN** — Create `src/train_vae/run.py`: load config via `src/config.py`; read `TRAIN_X_PATH`, `VAL_X_PATH`, `TEST_X_PATH`, `ENCODER_OUTPUT_PATH`, `DECODER_OUTPUT_PATH`, `MLFLOW_TRACKING_URI` env vars with defaults from config; concatenate all three X arrays (no Y); set `mlflow.set_tracking_uri`; instantiate `DVAETrainer(config.vae, config.mlflow)`; call `.train(X_all)`; exit 0 on success, exit 1 on error
+- [x] T089 [US3] Run `dvc repro train_vae` — confirm both `.pth` artifacts exist and MLflow `crash-severity-vae` experiment has a completed run
+- [x] T090 [US3] Open MLflow UI → `crash-severity-vae` → select run → Metrics → `vae_elbo` — confirm line chart shows decreasing trend; confirm `vae_reconstruction_loss` and `vae_kl_loss` both logged per epoch
 
 **Checkpoint**: VAE trains on full X (no Y); ELBO curve logged per epoch; encoder + decoder artifacts written; MLflow run complete.
 
@@ -238,7 +238,7 @@
 
 ## Phase 6: Polish & Validation
 
-**Purpose**: Assert all constitutional gates; update documentation; verify full reproducibility.
+**Purpose**: Assert all constitutional gates; update documentation; verify full reproducibility; add latent space drift detection.
 
 - [ ] T075 [P] Assert constitutional gates on final evaluation report: `python -c "import json; r=json.load(open('docs/evaluation_report.json')); print('F1:', 'PASS' if r['winner_macro_f1']>0.45 else 'FAIL'); print('Fatal recall:', 'PASS' if r['winner_fatal_recall']>0.30 else 'FAIL')"`
 - [ ] T076 [P] Update `CLAUDE.md`: update architecture table (add `train_vae` + `encode` rows); update pipeline description to 10-stage; update DL section (remove EvoTorch NAS, remove FlexMLP, add MLP on Z description); update featurize section (3-class target encoding)
@@ -246,6 +246,19 @@
 - [ ] T078 Commit all tracked files: `dvc.yaml`, `params.yaml`, `src/`, `great_expectations/gx/expectations/`, `pipelines/kubeflow/pipeline.py`, `docker/Dockerfile`, `k8s/`
 - [ ] T079 [P] Full reproducibility smoke test: delete `data/processed/` and `models/`; run `dvc pull && dvc repro`; confirm all 10 stages complete and artifacts restored
 - [ ] T080 [P] Remove `apache-airflow` from `pyproject.toml` (if present); run `uv sync`; confirm no import errors
+
+### Latent Space Drift Detection (US7)
+
+**Goal**: Detect covariate drift in production by comparing new batch latent representations against the training reference distribution saved at VAE training time.
+
+**Mechanism**: At `train_vae` time, encode X_train with the frozen encoder → save per-dim μ statistics as a reference. At `encode` time, compare the new batch μ vectors against the reference using ELBO and MMD. Results logged to MLflow and written as a JSON report — advisory, does not halt the pipeline.
+
+**Why latent space**: The VAE compresses raw 27-column input into a regularized 32-dim space. Shift in that space is a more sensitive and model-relevant drift signal than raw column statistics.
+
+- [ ] T096 [US7] Extend `train_vae` to save drift reference: after training, encode full X_train with frozen encoder in eval mode → compute per-dim μ_mean and μ_std → save to `models/drift_reference.npz`; add `drift_reference.npz` to `dvc.yaml` train_vae `outs`; add `drift` section to `params.yaml` (`elbo_threshold: 0.5`, `mmd_threshold: 0.1`) and `DriftConfig(elbo_threshold, mmd_threshold)` to `src/config.py`
+- [ ] T097 [US7] Create `src/drift/` package and `src/drift/detector.py`: `DriftResult` dataclass (`elbo_score: float`, `mmd_score: float`, `is_drifted: bool`, `n_samples: int`); `DriftDetector(reference_path, encoder_path, vae_config, drift_config)` with single public method `detect(X_new: np.ndarray) -> DriftResult`; load frozen encoder + decoder; compute mean ELBO over X_new batch; compute MMD between new μ vectors and reference μ sample using RBF kernel (`bandwidth=1.0`); set `is_drifted=True` if either metric exceeds its threshold
+- [ ] T098 [US7] Extend `src/encode/run.py` to instantiate `DriftDetector` and call `.detect(X_all)` after encoding; log `drift_elbo`, `drift_mmd`, `drift_detected` (0/1) to the active MLflow run; write `docs/drift_report.json` (`elbo_score`, `mmd_score`, `is_drifted`, `n_samples`, `elbo_threshold`, `mmd_threshold`); print `[WARN] DRIFT DETECTED — review drift_report.json` if flagged — advisory only, exit 0 regardless
+- [ ] T099 [US7] Run `dvc repro encode` → confirm `docs/drift_report.json` written with all fields; open MLflow → `crash-severity-vae` experiment → confirm `drift_elbo` and `drift_mmd` logged on the encode run; verify `is_drifted=false` on training data (self-reference should not trigger drift)
 
 ---
 
