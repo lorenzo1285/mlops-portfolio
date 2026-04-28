@@ -45,6 +45,7 @@ class DataValidator:
         datasource_name: str,
         asset_name: str,
         suite_name: str,
+        run_name: str | None = None,
         verbose: bool = True,
     ) -> None:
         """
@@ -62,6 +63,9 @@ class DataValidator:
             Name of the GE dataframe asset.
         suite_name : str
             Name of the expectation suite.
+        run_name : str | None
+            Optional name for this validation run. Organizes Data Docs by run name.
+            Defaults to None (GE uses "__none__" placeholder).
         verbose : bool
             If True, prints detailed logs.
         """
@@ -70,6 +74,7 @@ class DataValidator:
         self.datasource_name = datasource_name
         self.asset_name = asset_name
         self.suite_name = suite_name
+        self.run_name = run_name
         self.verbose = verbose
 
     def validate(self, df: pd.DataFrame) -> ValidationResult:
@@ -101,10 +106,11 @@ class DataValidator:
         )
         context = builder.build()
 
-        # Layer 2: Suite building + preparation
+        # Layer 2: Suite building + preparation (reuse builder's context — single open)
         manager = GEManager(
             context_root_dir=self.context_root_dir,
             verbose=self.verbose,
+            context=context,
         )
 
         # Build suite from column contracts
@@ -134,6 +140,7 @@ class DataValidator:
             context=context,
             batch_definition=manager.batch_definition,
             suite=manager.suite,
+            run_name=self.run_name,
             verbose=self.verbose,
         )
 

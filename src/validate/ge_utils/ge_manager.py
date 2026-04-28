@@ -61,6 +61,7 @@ class GEManager:
         self,
         context_root_dir: str,
         verbose: bool = True,
+        context: Optional[FileDataContext] = None,
     ) -> None:
         self.verbose = verbose
         self._separator("1. LOADING CONTEXT")
@@ -71,8 +72,12 @@ class GEManager:
         if not (root / "great_expectations.yml").exists():
             raise FileNotFoundError(f"great_expectations.yml missing in: {root}")
 
-        self.context: FileDataContext = gx_installed.get_context(context_root_dir=str(root))
-        self._log(f"[OK] Context loaded from: {root}")
+        if context is not None:
+            self.context: FileDataContext = context
+            self._log(f"[OK] Context provided externally from: {root}")
+        else:
+            self.context = gx_installed.get_context(context_root_dir=str(root))
+            self._log(f"[OK] Context loaded from: {root}")
 
         # Print existing datasources and suites
         datasource_names = list(self.context.data_sources.all())
@@ -178,18 +183,17 @@ class GEManager:
                         f"excluding sentinels {contract.sentinel_values} (mostly={contract.mostly})"
                     )
                 else:
-                    # No sentinels — use mostly tolerance
+                    # No sentinels — strict: every row must be in range
                     suite.add_expectation(
                         gx_installed.expectations.ExpectColumnValuesToBeBetween(
                             column=col_name,
                             min_value=contract.min,
                             max_value=contract.max,
-                            mostly=contract.mostly,
                             meta={"rule": f"{col_name}_range"},
                         )
                     )
                     expectations_count += 1
-                    self._log(f"      -ExpectColumnValuesToBeBetween [{contract.min}, {contract.max}] (mostly={contract.mostly})")
+                    self._log(f"      -ExpectColumnValuesToBeBetween [{contract.min}, {contract.max}] (strict)")
 
             # Allowed values — use mostly tolerance
             if contract.allowed_values is not None:

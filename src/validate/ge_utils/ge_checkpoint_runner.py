@@ -39,6 +39,7 @@ from typing import Any
 import great_expectations as gx_installed
 import pandas as pd
 from great_expectations.data_context import FileDataContext
+from great_expectations.core import RunIdentifier
 
 
 @dataclass
@@ -64,12 +65,14 @@ class GECheckpointRunner:
         batch_definition: Any,
         suite: Any,
         checkpoint_name: str = "validation_checkpoint",
+        run_name: str | None = None,
         verbose: bool = True,
     ) -> None:
         self.context = context
         self.batch_definition = batch_definition
         self.suite = suite
         self.checkpoint_name = checkpoint_name
+        self.run_name = run_name
         self.verbose = verbose
 
         self._log("=" * 60)
@@ -102,10 +105,11 @@ class GECheckpointRunner:
         # Create validation definition
         validation_name = f"{self.checkpoint_name}_validation"
 
-        try:
+        existing = {vd.name for vd in self.context.validation_definitions.all()}
+        if validation_name in existing:
             validation_def = self.context.validation_definitions.get(validation_name)
             self._log(f"[OK] Using existing ValidationDefinition: {validation_name}")
-        except Exception:
+        else:
             validation_def = gx_installed.ValidationDefinition(
                 name=validation_name,
                 data=self.batch_definition,
@@ -116,9 +120,18 @@ class GECheckpointRunner:
 
         # Run validation (automatically stores results and builds Data Docs)
         self._log("   Executing validation...")
-        result = validation_def.run(
-            batch_parameters={"dataframe": df},
-        )
+        if self.run_name:
+            self._log(f"   Run name: {self.run_name}")
+        
+        # In GE v1, run_name is passed via RunIdentifier
+        run_params = {"batch_parameters": {"dataframe": df}}
+        if self.run_name:
+            run_params["run_id"] = RunIdentifier(
+                run_name=self.run_name,
+                run_time=pd.Timestamp.now(tz="UTC"),
+            )
+        
+        result = validation_def.run(**run_params)
 
         # Build Data Docs explicitly
         try:

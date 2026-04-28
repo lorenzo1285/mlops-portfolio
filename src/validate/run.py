@@ -28,6 +28,7 @@ def main() -> None:
         os.path.join(config.data.processed_dir, ".validation_passed"),
     )
     gx_root = os.getenv("GX_ROOT", "great_expectations/gx")
+    run_name = os.getenv("VALIDATION_RUN_NAME", "dvc_pipeline")
 
     # Validate input exists
     if not Path(input_path).exists():
@@ -46,6 +47,7 @@ def main() -> None:
         datasource_name=config.great_expectations.datasource_name,
         asset_name="crash_data_asset",
         suite_name=config.great_expectations.suite_name,
+        run_name=run_name,
         verbose=True,
     )
 

@@ -88,10 +88,10 @@
 
 **Independent Test**: `uv run python -m src.validate.run` → exit 0, HTML Data Docs created. Inject SPEEDLIMIT=500 → exit 1, expectation name in stdout.
 
-- [ ] T029a [US2] Refactor `GEContextBuilder` to infrastructure only (datasource + empty asset, no suite logic); add `sentinel_values: list[Any] | None` to `ColumnContract`; rewrite `GEManager.build_suite()` to use `row_condition` per sentinel for range checks (no `_RANGE_MOSTLY`); remove `_RANGE_MOSTLY` entirely
-- [ ] T029 [US2] **RED** — Write `tests/test_validate.py`: use `data/raw/CGR_Crash_Data.csv` as fixture (validate runs on raw data — constitution XVI); assert exit 0 + Data Docs HTML created on clean CSV; assert exit 1 + violated expectation in stdout on corrupt CSV. Run — confirm FAIL.
-- [ ] T029b [US2] **GREEN** — Create `great_expectations/gx/utils/ge_checkpoint_runner.py`: `CheckpointRunResult` dataclass; `GECheckpointRunner` with `run(df) → CheckpointRunResult` using `UpdateDataDocsAction` + `StoreValidationResultAction`
-- [ ] T030 [US2] **GREEN** — Implement `DataValidator.validate(df)` in `src/validate/validator.py` (three-class GE workflow: Builder → Manager.build_suite → Manager preparation → CheckpointRunner.run); create `src/validate/run.py`: reads `INPUT_PATH`, calls `DataValidator`, writes sentinel `data/processed/.validation_passed` on exit 0
+- [x] T029a [US2] Refactor `GEContextBuilder` to infrastructure only (datasource + empty asset, no suite logic); add `sentinel_values: list[Any] | None` to `ColumnContract`; rewrite `GEManager.build_suite()` to use `row_condition` per sentinel for range checks (no `_RANGE_MOSTLY`); remove `_RANGE_MOSTLY` entirely
+- [x] T029 [US2] **RED** — Write `tests/test_validate.py`: use `data/raw/CGR_Crash_Data.csv` as fixture (validate runs on raw data — constitution XVI); assert exit 0 + Data Docs HTML created on clean CSV; assert exit 1 + violated expectation in stdout on corrupt CSV. Run — confirm FAIL.
+- [x] T029b [US2] **GREEN** — Create `great_expectations/gx/utils/ge_checkpoint_runner.py`: `CheckpointRunResult` dataclass; `GECheckpointRunner` with `run(df) → CheckpointRunResult` using `UpdateDataDocsAction` + `StoreValidationResultAction`
+- [x] T030 [US2] **GREEN** — Implement `DataValidator.validate(df)` in `src/validate/validator.py` (three-class GE workflow: Builder → Manager.build_suite → Manager preparation → CheckpointRunner.run); create `src/validate/run.py`: reads `INPUT_PATH`, calls `DataValidator`, writes sentinel `data/processed/.validation_passed` on exit 0
 
 **Checkpoint**: validate exits 0/1 correctly; Data Docs HTML created; sentinel written on success.
 
@@ -119,10 +119,10 @@
 - [x] T024 [US1] Verify caching: run `dvc repro` again with no changes — all stages report `Skipped. Stage is cached.`
 - [x] T025 [P] [US1] Verify param-triggered re-run: change `data.val_size` in `params.yaml` → `dvc repro featurize` re-runs only featurize; revert
 - [x] T026 [P] [US1] Run `dvc push` — confirm artifacts synced to `data/dvc-remote/`
-- [ ] T031 [US2] Run `dvc repro validate` on clean crash CSV — confirm exit 0 and Data Docs HTML at `great_expectations/gx/uncommitted/data_docs/index.html`
-- [ ] T032 [US2] Open Data Docs HTML — verify not-null, range, and value-set expectations all appear with pass/fail counts
-- [ ] T033 [US2] Test failure path: add row with SPEEDLIMIT=500; `python -m src.validate.run` → confirm exit 1 and expectation name in stdout; restore CSV
-- [ ] T034 [P] [US2] Commit `great_expectations/gx/expectations/crash_data_suite.json` and `great_expectations.yml` to git
+- [x] T031 [US2] Run `dvc repro validate` on clean crash CSV — confirm exit 0 and Data Docs HTML at `great_expectations/gx/uncommitted/data_docs/local_site/index.html` (actual GE v1 path)
+- [x] T032 [US2] Open Data Docs HTML — verify not-null, range, and value-set expectations all appear with pass/fail counts (54/54 passed, 100% success rate)
+- [x] T033 [US2] Test failure path: add row with SPEEDLIMIT=500; `python -m src.validate.run` → confirm exit 1 and expectation name in stdout; restore CSV
+- [x] T034 [P] [US2] Commit `great_expectations/gx/expectations/crash_data_suite.json` and `great_expectations.yml` to git
 
 **Checkpoint**: 10-stage DVC DAG defined; validate + ingest + featurize fully wired and cached; failure path halts pipeline; GE suite committed.
 

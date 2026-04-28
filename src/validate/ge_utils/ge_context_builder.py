@@ -110,11 +110,10 @@ class GEContextBuilder:
         )
         self._log(f"[OK] Datasource: {self._datasource_name}")
         
-        # Create dataframe asset — get existing one if already registered
-        try:
+        # Create dataframe asset — skip if already registered
+        existing_assets = {asset.name for asset in datasource.assets}
+        if self._asset_name not in existing_assets:
             datasource.add_dataframe_asset(name=self._asset_name)
-        except Exception:
-            datasource.get_asset(self._asset_name)
         self._log(f"[OK] Asset: {self._asset_name}")
         
         self._log("\n" + "=" * 60)
