@@ -101,6 +101,7 @@ vae:
 encode:
   lsa_target_ratio: 0.05
   min_fatal_samples: 10
+  random_state: 42
 
 mlflow:
   experiment_name_ml: crash-severity-ml

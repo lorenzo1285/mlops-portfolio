@@ -36,10 +36,10 @@
 
 | Term | Definition | Aliases to avoid |
 |------|------------|------------------|
-| **Latent Space** | The 32-dimensional continuous space in which the Encoder embeds crash records. Points that are close together correspond to similar crashes. The Denoising β-VAE's KL term ensures the space is approximately Gaussian. | "embedding space", "Z space" (acceptable shorthand in code) |
-| **Latent Vector (Z)** | A single 32-dimensional point in the Latent Space — the compressed representation of one crash record produced by the frozen Encoder. The input to both classifiers. | "embedding", "Z vector", "latent code" |
-| **latent_dim** | The fixed dimensionality of every Latent Vector Z. Set to 32 in `params.yaml`; not tunable. | "embedding size", "Z dimension", "bottleneck size" |
-| **Z_train_augmented** | The set of Latent Vectors for the Train Split after LSA has added synthetic Fatal-class vectors. Used to train both classifiers. | "augmented Z", "Z train" (Z_train is the pre-augmentation version — always qualify) |
+| **Latent Space** | The 8-dimensional continuous space in which the Encoder embeds crash records. Points that are close together correspond to similar crashes. The Denoising β-VAE's KL term ensures the space is approximately Gaussian. | "embedding space", "Z space" (acceptable shorthand in code) |
+| **Latent Vector (Z)** | A single 8-dimensional point in the Latent Space — the compressed representation of one crash record produced by the frozen Encoder. The input to both classifiers. | "embedding", "Z vector", "latent code" |
+| **latent_dim** | The fixed dimensionality of every Latent Vector Z. Set to 8 in `params.yaml`; not tunable. | "embedding size", "Z dimension", "bottleneck size" |
+| **Z_train_augmented** | The set of Latent Vectors for the Train Split produced by encoding `X_train_augmented` (CTGAN-augmented) through the frozen VAE encoder. Already contains encoded Fatal-class synthetic rows. Used to train both classifiers. | "augmented Z", "Z train" (always qualify — Z_train_augmented is the post-encode version of augmented X) |
 | **Z_val** | The set of Latent Vectors for the Validation Split. Never augmented. Used for early stopping and Katib trial fitness. | "val Z", "validation latent vectors" |
 | **Z_test** | The set of Latent Vectors for the Test Split. Never augmented. Used only in the `evaluate` stage for final A/B test results and constitutional gate assertions. | "test Z", "test latent vectors", "held-out Z" |
 
@@ -47,7 +47,7 @@
 
 | Term | Definition | Aliases to avoid |
 |------|------------|------------------|
-| **Latent-Space Augmentation (LSA)** | The technique of generating synthetic Fatal-class Latent Vectors by sampling Gaussian noise around the mean of real Fatal Z vectors in Z_train, until Fatal reaches the configured target ratio. Applied to Z_train only. | "SMOTE" (SMOTE is raw-feature oversampling — LSA is Z-space augmentation), "oversampling", "synthetic augmentation" |
+| **CTGAN Augmentation** | The technique of fitting CTGAN/TVAE on real Fatal-class rows of `X_train` to generate synthetic Fatal-class feature rows, until Fatal reaches `augment.target_fatal_ratio`. Applied in the dedicated `augment` DVC stage on `X_train` only; `X_val` and `X_test` are never augmented (constitution III v3.3.0). | "SMOTE" (SMOTE interpolates in raw feature space — CTGAN learns the distribution), "LSA" (LSA was Z-space augmentation, now retired), "oversampling" |
 | **PDO** | Property Damage Only — crash severity class 0. Accidents with no injuries, representing approximately 81% of the dataset. | "no-injury", "class 0", "non-injury crash" |
 | **Injury** | Crash severity class 1. Accidents involving at least one injury but no fatalities, representing approximately 17.5% of the dataset. | "class 1", "non-fatal injury" |
 | **Fatal class** | Crash severity class 2. Accidents involving at least one fatality, representing approximately 1.7% of the dataset. The safety-critical minority class guarded by the fatal recall constitutional gate (> 0.30). | "fatal crash", "class 2", "fatality class" |
@@ -69,7 +69,7 @@
 |------|------------|------------------|
 | **VAE Artifact** | The pair of serialised files `models/vae_encoder.pth` + `models/vae_decoder.pth`. DVC-tracked output of the `train_vae` stage. | "VAE model", "VAE checkpoint" |
 | **Model Artifact** | A serialised trained classifier: `.pkl` for the XGBoost model, `.pth` for the MLP classifier. DVC-tracked output of a training stage. | "model", "checkpoint" (reserve for intermediate `.pth` saves during training) |
-| **MLP Classifier** | The shallow PyTorch MLP operating on Z vectors: `Linear(32, 64) → ReLU → Dropout → Linear(64, 3)`. Produces 3-class predictions. Not to be confused with the Encoder or Decoder. | "ShallowMLP" (retired), "FlexMLP" (retired), "DL model", "neural network" |
+| **MLP Classifier** | The shallow PyTorch MLP operating on Z vectors: `Linear(8, 64) → ReLU → Dropout(0.1) → Linear(64, 3)`. Produces 3-class predictions. Not to be confused with the Encoder or Decoder. | "ShallowMLP" (retired), "FlexMLP" (retired), "DL model", "neural network" |
 | **Registered Model** | A model artifact promoted to the MLflow Model Registry, identified by name and alias (e.g. `models:/crash-severity@champion`). | "deployed model", "production model" |
 | **Champion** | The alias assigned to the winning Registered Model version in the MLflow Model Registry. | "best model", "winner model" |
 | **Winner** | The model family (ML/XGBoost or DL/MLP) declared superior by the statistical A/B test, or ML/XGBoost by default when p ≥ 0.05. | "best model", "champion model" (champion is the registry alias, winner is the A/B test outcome) |
@@ -99,8 +99,8 @@
 
 - The **ML Pipeline** is expressed as a DVC `dvc.yaml` DAG (local execution) and a **KFP Pipeline** (Kubeflow execution) — the same logic, two execution contexts.
 - A **Pipeline Stage** is implemented as a **Stage Script**, wrapped as a **KFP Component**.
-- The `train_vae` stage produces a **VAE Artifact** (encoder + decoder). The `encode` stage uses the frozen **Encoder** to produce **Z_val**, **Z_test**, and **Z_train_augmented**.
-- **LSA** operates on **Z_train** (before augmentation) and produces **Z_train_augmented** by adding synthetic **Fatal class** Latent Vectors. **Z_val** and **Z_test** are never modified.
+- The `train_vae` stage produces a **VAE Artifact** (encoder + decoder). The `augment` stage generates `X_train_augmented` via **CTGAN Augmentation** in parallel with `train_vae`. The `encode` stage uses the frozen **Encoder** to project `X_train_augmented` → **Z_train_augmented**, and original `X_val`/`X_test` → **Z_val**/**Z_test**.
+- **CTGAN Augmentation** operates on `X_train` Fatal rows and produces `X_train_augmented`. **X_val** and **X_test** are never modified.
 - The **MLP Classifier** and **XGBoost** classifier both take **Z_train_augmented** as training input and **Z_test** as the final evaluation input.
 - A **Katib Experiment** runs N **HPO Trials**; each trial uses **Z_val** for fitness and logs one **Experiment Run** to `crash-severity-tune`.
 - An **A/B Test** compares `crash-severity-ml` vs `crash-severity-dl` **Experiments** and declares a **Winner**.
@@ -114,8 +114,8 @@
 > **Dev:** "So Z_test is always the true held-out set?"
 > **Domain expert:** "Exactly. **Z_val** is for early stopping and **HPO Trial** fitness — that's what Katib reads via `val_macro_f1`. **Z_test** is only touched in the `evaluate` stage for the **A/B Test** and the **Fatal Recall Gate**."
 
-> **Dev:** "What does LSA do exactly, and why isn't it just SMOTE?"
-> **Domain expert:** "**Latent-Space Augmentation (LSA)** samples Gaussian noise around the mean of real **Fatal class** **Latent Vectors** in **Z_train**. It works because the **Latent Space** is smooth and continuous — Gaussian interpolation near a **Fatal class** centroid produces plausible, novel fatal crash representations. SMOTE interpolates in the raw feature space, where mixing a continuous speed limit with a categorical weather code is meaningless. LSA is principled; raw SMOTE is not."
+> **Dev:** "What does CTGAN Augmentation do, and why isn't it just SMOTE?"
+> **Domain expert:** "**CTGAN Augmentation** fits a generative model (CTGAN/TVAE) on the real **Fatal class** rows of `X_train` and samples new synthetic Fatal rows from the learned distribution. Unlike SMOTE, which interpolates linearly between raw features (producing nonsensical combinations like fractional DAYOFWEEK), CTGAN learns the full multivariate Fatal distribution and generates coherent rows. The synthetic rows are then encoded through the frozen **Encoder** into **Z_train_augmented** alongside the real rows."
 
 > **Dev:** "Is the per-class P/R/F1 matrix logged per seed or just once?"
 > **Domain expert:** "Per seed — every **Experiment Run** in `crash-severity-ml` and `crash-severity-dl` logs its own **per-class P/R/F1 matrix** as a JSON artifact. The `evaluate` stage then computes the aggregated comparison. You can inspect any individual seed's **Fatal class** recall directly in MLflow."
@@ -132,7 +132,7 @@
 - **"task"** appears in two unrelated contexts: **Airflow Task** (DAG node, tutorial only) and implementation task (T-numbers in tasks.md). These are distinct.
 - **"architecture"** appears in two senses: MLP layer configuration (now simply described as "architecture" in context since NAS is removed) and system/software architecture. Qualify when ambiguous.
 - **"epoch"** must only refer to one pass over training data during weight optimisation. The NAS concept of "architecture generation" is retired along with NAS itself.
-- **"Z_train" vs "Z_train_augmented"**: Z_train is the pre-LSA set of latent vectors for the Train Split; Z_train_augmented is after LSA. Only Z_train_augmented is passed to classifiers. Always use the full qualified name.
+- **"Z_train" vs "Z_train_augmented"**: Z_train_augmented is the encoded output of `X_train_augmented` (CTGAN-augmented). There is no intermediate "Z_train" artifact — augmentation happens in X-space (augment stage) before encoding. Only Z_train_augmented is passed to classifiers. Always use the full qualified name.
 - **"FlexMLP"** and **"ShallowMLP"** are both retired. The current DL classifier is **MLP Classifier** — a fixed-architecture `Linear(32,64)→ReLU→Dropout→Linear(64,3)` operating on Z vectors. No NAS, no variable depth.
 - **"val_macro_f1" vs "eout_macro_f1"**: `val_macro_f1` is the Katib fitness metric computed on **Z_val** inside **HPO Trials**. `eout_macro_f1` is the final test metric computed on **Z_test** in the `evaluate` stage. These are different numbers from different data splits — never use them interchangeably.
 - **"minority class"** is retired as a standalone term. Now refers specifically to **Fatal class** (class 2). The **Fatal Recall Gate** replaces the generic "minority recall threshold".

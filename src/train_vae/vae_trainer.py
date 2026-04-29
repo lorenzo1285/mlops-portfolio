@@ -173,33 +173,34 @@ class DVAETrainer:
         self._mlflow_config = mlflow_config
         self._run_name = run_name
 
-    def train(self, X_all: np.ndarray) -> VAETrainResult:
+    def train(self, X_all: np.ndarray, output_dir: Path | None = None) -> VAETrainResult:
         """Train VAE on full dataset with early stopping.
-        
+
         Args:
             X_all: Combined training/val/test data (unsupervised)
-            
+            output_dir: Directory for encoder/decoder checkpoints. Defaults to Path("models").
+
         Returns:
             VAETrainResult with best checkpoint paths and metrics
         """
         # Set MLflow tracking
         mlflow.set_tracking_uri(self._mlflow_config.tracking_uri)
         mlflow.set_experiment(self._vae_config.experiment_name)
-        
+
         # Prepare data
         input_dim = X_all.shape[1]
-        
+
         # Split into train (90%) and val (10%) for early stopping
         n_total = len(X_all)
         n_train = int(0.9 * n_total)
-        
+
         X_train = X_all[:n_train]
         X_val = X_all[n_train:]
-        
+
         # Convert to tensors
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
         X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-        
+
         # Create data loaders
         train_dataset = TensorDataset(X_train_tensor)
         train_loader = DataLoader(
@@ -207,14 +208,14 @@ class DVAETrainer:
             batch_size=self._vae_config.batch_size,
             shuffle=True,
         )
-        
+
         val_dataset = TensorDataset(X_val_tensor)
         val_loader = DataLoader(
             val_dataset,
             batch_size=self._vae_config.batch_size,
             shuffle=False,
         )
-        
+
         # Initialize model
         model = DenoisingBetaVAE(
             input_dim=input_dim,
@@ -223,18 +224,18 @@ class DVAETrainer:
             beta=self._vae_config.beta,
             dropout_p=self._vae_config.dropout_p,
         )
-        
+
         # Optimizer
         optimizer = torch.optim.Adam(model.parameters(), lr=self._vae_config.lr)
-        
+
         # Early stopping
         best_val_elbo = float("inf")
         best_epoch = 0
         patience_counter = 0
-        
+
         # Create output directory for checkpoints
-        checkpoint_dir = Path("models")
-        checkpoint_dir.mkdir(exist_ok=True)
+        checkpoint_dir = output_dir if output_dir is not None else Path("models")
+        checkpoint_dir.mkdir(exist_ok=True, parents=True)
         encoder_path = str(checkpoint_dir / "vae_encoder.pth")
         decoder_path = str(checkpoint_dir / "vae_decoder.pth")
         

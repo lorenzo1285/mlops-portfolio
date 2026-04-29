@@ -97,6 +97,7 @@ stages:
       - vae.latent_dim
       - encode.lsa_target_ratio
       - encode.min_fatal_samples
+      - encode.random_state
     outs:
       - data/processed/Z_train_augmented.npy
       - data/processed/Z_val.npy

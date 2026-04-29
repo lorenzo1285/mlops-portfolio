@@ -3,7 +3,7 @@ from __future__ import annotations
 import mlflow
 import numpy as np
 import pandas as pd
-from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import log_loss, precision_recall_fscore_support
 
 
 def make_eval_dataset(
@@ -35,6 +35,19 @@ def per_class_matrix(
         }
         for i, name in enumerate(class_names)
     }
+
+
+def cross_entropy_loss(y_true: np.ndarray, y_proba: np.ndarray) -> float:
+    """Mean cross-entropy loss from integer class labels and predicted probabilities.
+
+    Args:
+        y_true:  Integer class labels, shape (N,).
+        y_proba: Predicted class probabilities, shape (N, n_classes).
+
+    Returns:
+        Scalar mean cross-entropy (nats).
+    """
+    return float(log_loss(y_true, y_proba))
 
 
 def compute_class_weights(y: np.ndarray, n_classes: int) -> np.ndarray:

@@ -63,6 +63,7 @@ class VAEConfig:
 class EncodeConfig:
     lsa_target_ratio: float
     min_fatal_samples: int
+    random_state: int = 42
 
 
 @dataclass

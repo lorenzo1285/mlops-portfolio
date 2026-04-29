@@ -341,8 +341,8 @@ stages:
       size: 107591014
     - path: src/config.py
       hash: md5
-      md5: b2cf6d63c74a23aa3add38c50853280a
-      size: 3683
+      md5: 8fbfd6c1705cab8f2c93a174ee58e009
+      size: 3710
     - path: src/featurize/featurizer.py
       hash: md5
       md5: a7415cc2ce88168cca7b089d76b0cbea
@@ -475,16 +475,16 @@ stages:
       size: 2318704
     - path: src/config.py
       hash: md5
-      md5: b2cf6d63c74a23aa3add38c50853280a
-      size: 3683
+      md5: 8fbfd6c1705cab8f2c93a174ee58e009
+      size: 3710
     - path: src/train_vae/run.py
       hash: md5
       md5: 358416794e0c43602ec639b4368a1537
       size: 2518
     - path: src/train_vae/vae_trainer.py
       hash: md5
-      md5: 0b7785527d8f96b1579188ad018a111d
-      size: 12330
+      md5: a996ab68e538bb6801653f5e490d1eb9
+      size: 12413
     params:
       params.yaml:
         mlflow.tracking_uri: mlruns/
@@ -503,9 +503,67 @@ stages:
     outs:
     - path: models/vae_decoder.pth
       hash: md5
-      md5: 2b9c95c7a65381b3becb20fc5c908738
+      md5: 169e27d05a5b5135897d04c9e7c24cbf
       size: 209545
     - path: models/vae_encoder.pth
       hash: md5
-      md5: 9b5a25784a277d57e98ebd3d95f51abb
+      md5: 2c04c8be362ccd5d80917c237a2a8b8c
       size: 218507
+  encode:
+    cmd: python -m src.encode.run
+    deps:
+    - path: data/processed/X_test.npy
+      hash: md5
+      md5: 33d4f39122927dadc5a314309d1605fc
+      size: 2318704
+    - path: data/processed/X_train.npy
+      hash: md5
+      md5: e88955d45b25309af5f466dba3510f60
+      size: 10819248
+    - path: data/processed/X_val.npy
+      hash: md5
+      md5: 4f485a0802260995ea181d1d505547ad
+      size: 2318704
+    - path: data/processed/y_train.npy
+      hash: md5
+      md5: 7a7da204ddc9d5662784b4099af577b3
+      size: 416248
+    - path: models/vae_encoder.pth
+      hash: md5
+      md5: 2c04c8be362ccd5d80917c237a2a8b8c
+      size: 218507
+    - path: src/config.py
+      hash: md5
+      md5: 8fbfd6c1705cab8f2c93a174ee58e009
+      size: 3710
+    - path: src/encode/encoder.py
+      hash: md5
+      md5: e2b74d162ab95e655ff90f67fee574bf
+      size: 3625
+    - path: src/encode/run.py
+      hash: md5
+      md5: 68d9462a6f59aa9a50717f81e672ee22
+      size: 3048
+    params:
+      params.yaml:
+        encode.lsa_target_ratio: 0.05
+        encode.min_fatal_samples: 10
+        encode.random_state: 42
+        vae.latent_dim: 32
+    outs:
+    - path: data/processed/Z_test.npy
+      hash: md5
+      md5: 76cf941b9e5a75b2d7771164638e180a
+      size: 1426944
+    - path: data/processed/Z_train_augmented.npy
+      hash: md5
+      md5: 0883a5abc97c7eec30f4f6a47fcc5887
+      size: 13997184
+    - path: data/processed/Z_val.npy
+      hash: md5
+      md5: 5d041158e340a8847bb427a143852cd4
+      size: 1426944
+    - path: data/processed/y_train_augmented.npy
+      hash: md5
+      md5: fd824cb0da033261bdc92cd7a8c05d89
+      size: 437536

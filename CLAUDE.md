@@ -6,21 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **MLOps Learning Portfolio — Crash Severity Use Case**
 
-An eight-stage ML pipeline on the CGR crash dataset (Grand Rapids, 74,309 rows, 142 cols)
-demonstrating the full MLOps toolchain: DVC, Great Expectations, MLflow, Apache Airflow,
-Kubeflow Pipelines, and Katib (HPO).
+A 10-stage ML pipeline on the CGR crash dataset (Grand Rapids, 74,309 rows, 142 cols)
+demonstrating the full MLOps toolchain: DVC, Great Expectations, MLflow, Kubeflow
+Pipelines, and Katib (HPO).
 
-Pipeline: `ingest → validate → featurize → train_ml → train_dl → evaluate → tune → register`
+Pipeline: `validate → ingest → featurize → [train_vae ‖ augment] → encode → [train_ml ‖ train_dl] → evaluate → tune → register`
 
-- Stages are **sequential** to avoid RAM contention on a single machine
-- All stages call `dvc repro <stage>` — both from Airflow and KFP components
-- **Class-based architecture**: each stage has a business-logic class (`ingester.py`, `featurizer.py`, etc.) and a thin `run.py` entry point that handles config, I/O, and MLflow logging only. Classes accept all parameters via constructor — no env var reads or file I/O inside them (constitution XIV)
+- `train_vae` and `augment` run in parallel (both depend only on featurize outputs)
+- `train_ml` and `train_dl` run in parallel (both depend on encode outputs)
+- All other stages are sequential to avoid RAM contention on a single machine
+- All stages call `dvc repro <stage>` — both locally and as KFP components
+- **Class-based architecture**: each stage has a business-logic class and a thin `run.py` entry point that handles config, I/O, and MLflow logging only. Classes accept all parameters via constructor — no env var reads or file I/O inside them (constitution XIV)
 - All stage scripts read config via `src/config.py` typed dataclasses — no raw yaml dicts
-- Feature columns, numeric/ordinal/categorical split, and sentinel handling all defined in `params.yaml` under `features.*`
+- Feature columns, numeric/ordinal/categorical split, cyclical columns all defined in `params.yaml` under `features.*`
 - **3-way split (70/15/15)**: `X_train`/`y_train` — fit weights; `X_val`/`y_val` — HPO fitness + early stopping; `X_test`/`y_test` — final A/B test only (never seen during training or search)
-- **Feature selection**: configurable via `feature_selection.method` in `params.yaml`; `none` by default; `FeatureSelector` class fits on train split only
-- **Ordinal encoding**: DAYOFWEEK (Mon=0…Sun=6) and MONTH (Jan=0…Dec=11) encoded as semantic integers, not scaled floats; defined in `features.ordinal_columns`
-- **HPO via Katib**: `tune` stage submits a Katib `Experiment` CRD to Kubernetes; each trial runs `src/tune/trial.py` as a pod; search space lives in `k8s/katib/*.yaml`, not `params.yaml`
+- **Cyclical encoding**: HOUR and MONTH replaced by sin/cos pairs in featurize; defined in `features.cyclical_columns`
+- **HPO via Katib**: `tune` stage submits a Katib `Experiment` CRD; each trial retrains VAE + encode + winner classifier; β search space in `k8s/katib/vae_experiment.yaml`
 
 ## Commands
 
@@ -64,20 +65,24 @@ Each stage: `<stage>/run.py` (thin entry point) + `<stage>/<module>.py` (busines
 
 | Stage | Class module | Purpose |
 |-------|-------------|---------|
-| ingest | `ingester.py` → `Ingester` | Copy raw CSV to `data/processed/raw.csv` |
 | validate | `validator.py` → `DataValidator` | GE expectations from params; halt on failure; write Data Docs |
-| featurize | `featurizer.py` → `Featurizer` | 3-way split; 3-group encoding; optional feature selection; sample complexity gate |
-| train_ml | `trainer.py` → `MLTrainer` | PyCaret N seeds; autolog disabled; `mlflow.evaluate()`; save `.pkl` |
-| train_dl | `trainer.py` → `DLTrainer` | EvoTorch NAS → best arch; Adam N seeds; Dropout + L2; `mlflow.evaluate()` via pyfunc; save `.pth` |
+| ingest | `ingester.py` → `Ingester` | Copy raw CSV to `data/processed/raw.csv` |
+| featurize | `featurizer.py` → `Featurizer` | 3-way split; 3-group encoding; cyclical HOUR/MONTH; sample complexity gate |
+| train_vae | `vae_trainer.py` → `DVAETrainer` | Denoising β-VAE + KL annealing on X_all (unsupervised); save encoder/decoder `.pth` |
+| augment | `augmenter.py` → `CTGANAugmenter` | CTGAN on X_train Fatal rows → X_train_augmented; parallel with train_vae |
+| encode | `encoder.py` → `LatentEncoder` | Frozen encoder projects X_train_augmented + X_val/test → Z vectors (8-dim) |
+| train_ml | `trainer.py` → `MLTrainer` | XGBoost N seeds on Z_train_augmented; autolog disabled; save `.pkl` |
+| train_dl | `trainer.py` → `DLTrainer` | Shallow MLP N seeds on Z_train_augmented; cross-entropy + class weights; save `.pth` |
 | evaluate | `evaluator.py` → `ABEvaluator` | Welch's t-test on macro F1 distributions; assert constitutional gates |
-| tune | `tuner.py` → `HyperparamTuner` | Submit Katib Experiment; poll completion; read best trial params |
+| tune | `tuner.py` → `HyperparamTuner` | Submit Katib β-HPO Experiment; poll completion; write best β to params.yaml |
 | register | `registrar.py` → `ModelRegistrar` | Promote champion to MLflow registry; write `registry_receipt.json` |
 
 ### Featurize Stage Details
 
-Three-group `ColumnTransformer` (fitted on X_train only):
-- `num` — median impute → StandardScaler (HOUR, YEAR, SPEEDLIMIT, RDNUMLANES, RDWIDTH, DRIVER1AGE, DRIVER2AGE)
-- `ord` — mode impute → OrdinalEncoder(explicit categories, dtype=int) — semantic integer encoding, no scaling (DAYOFWEEK Mon=0…Sun=6, MONTH Jan=0…Dec=11)
+Four-group `ColumnTransformer` (fitted on X_train only):
+- `num` — median impute → StandardScaler (YEAR, SPEEDLIMIT, RDNUMLANES, RDWIDTH, DRIVER1AGE, DRIVER2AGE)
+- `cyc` — mode impute → sin/cos pairs (HOUR×2, MONTH×2); period defined in `features.cyclical_columns`
+- `ord` — mode impute → OrdinalEncoder(explicit categories, dtype=int) — semantic integer encoding, no scaling (DAYOFWEEK Mon=0…Sun=6)
 - `cat` — mode impute → OrdinalEncoder(arbitrary order) (WEATHER, SURFCOND, LIGHTING, etc.)
 
 Optional `FeatureSelector` runs after preprocessing, fits on X_train only. Methods:
@@ -85,18 +90,30 @@ Optional `FeatureSelector` runs after preprocessing, fits on X_train only. Metho
 - `correlation` / `vif` — unsupervised collinearity reduction
 - `none` — pass-through (default)
 
-### DL Architecture & Training
+### VAE Architecture & Training
 
-**EvoTorch NAS** (architecture search, runs once before seed loop):
-- Search space: `dl.evo.*` in params.yaml — hidden dim range, layer count range, algorithm (SNES/PGPE)
-- Fitness function: quick Adam train (10 epochs) + macro F1 on val
-- Best architecture written to `dl.best_arch` in params.yaml
+**Denoising β-VAE** (`src/train_vae/vae_trainer.py`):
+- Trains unsupervised on X_all = concat(X_train, X_val, X_test) — no labels (constitution II exception)
+- Input dropout (neural inpainting) → Encoder → reparameterize → Decoder → reconstruct clean X
+- KL annealing: `beta_t` ramps from `vae.beta_start=0.0` to `vae.beta_max` over `vae.warmup_epochs` — prevents posterior collapse
+- `latent_dim: 8` (fixed; set in params.yaml); `encoder_dims: [256, 128, 64]`
+- Logs per-epoch: `vae_elbo`, `vae_reconstruction_loss`, `vae_kl_loss`, `kl_beta`
 
-**FlexMLP** (variable-depth, architecture from NAS):
-- Linear(d,h₁)→BN→ReLU→Dropout → … → Linear(hₙ,1) where [h₁…hₙ] = `dl.best_arch`
-- Dropout rate: `dl.dropout` in params.yaml (tunable via Katib)
-- L2 weight decay: `Adam(weight_decay=dl.weight_decay)` in params.yaml (tunable via Katib)
-- Early stopping: patience from `dl.patience` on val loss
+### CTGAN Augmentation
+
+**CTGANAugmenter** (`src/augment/augmenter.py`):
+- Fits TVAE on Fatal-class rows of X_train only
+- Generates synthetic Fatal rows until `fatal_fraction >= augment.target_fatal_ratio` (0.05)
+- Outputs `X_train_augmented.npy` + `y_train_augmented.npy` as DVC-tracked artifacts
+- X_val and X_test are NEVER augmented (constitution III v3.3.0)
+
+### MLP Classifier Architecture
+
+**ShallowMLP** (`src/train_dl/trainer.py`):
+- Fixed architecture: `Linear(8, 64) → ReLU → Dropout(dl.dropout_p) → Linear(64, 3)` (constitution IV)
+- Operates on Z vectors (8-dim latent space) — same input space as XGBoost
+- `CrossEntropyLoss(weight=computed_class_weights)`; runtime-computed weights from y_train distribution
+- Early stopping on val loss (`dl.patience`); 10 seeds; best seed by `eout_macro_f1`
 
 ### GE Layer Architecture (`great_expectations/gx/utils/`)
 
@@ -151,19 +168,21 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 
 ### Katib HPO
 
-- Search space defined in `k8s/katib/ml_experiment.yaml` and `k8s/katib/dl_experiment.yaml`
-- Each trial runs `src/tune/trial.py` inside the Docker image as a Kubernetes pod
-- Trial prints `eout_macro_f1=<value>` to stdout for Katib's metrics collector
-- Trial also logs all metrics to MLflow under `crash-severity-tune` experiment (via PVC-mounted mlruns/)
-- `HyperparamTuner.tune()` submits the Experiment CRD, polls `status.conditions`, reads `currentOptimalTrial.parameterAssignments`
-- Best params written to `params.yaml` under `tune.best_params` after experiment completes
+- Search space defined in `k8s/katib/vae_experiment.yaml` — β over `[0.5, 1.0, 2.0, 4.0, 8.0]`
+- Each trial runs `src/tune/trial.py` as a Kubernetes pod: retrains VAE with candidate β → encode X_train_augmented → train winner classifier → evaluate on Z_val
+- Trial prints `val_macro_f1=<float>` to stdout for Katib metrics collector (fitness signal)
+- Trial logs full metrics to MLflow `crash-severity-tune` (via PVC-mounted mlruns/)
+- `HyperparamTuner.tune()` submits Experiment CRD, polls `status.conditions`, reads `currentOptimalTrial.parameterAssignments`
+- Best β written to `params.yaml` under `tune.best_params.beta`; DVC detects change → invalidates train_vae and all downstream stages
 
 ### Shared Modules
 
-- `src/config.py` — typed dataclasses: `FeaturesConfig`, `DataConfig`, `ModelConfig`, `DLConfig`, `MLflowConfig`, `ABTestConfig`, `ValidationConfig`, `FeatureSelectionConfig`, `TuneConfig`; `load_config()` reads `PARAMS_PATH` env var
-- `src/metrics.py` — `make_eval_dataset()` helper for `mlflow.evaluate()`
+- `src/config.py` — typed dataclasses: `FeaturesConfig`, `DataConfig`, `ModelConfig`, `DLConfig`, `VAEConfig`, `EncodeConfig`, `AugmentConfig`, `MLflowConfig`, `ABTestConfig`, `ValidationConfig`, `FeatureSelectionConfig`, `TuneConfig`; `load_config()` reads `PARAMS_PATH` env var
+- `src/metrics.py` — `make_eval_dataset()`, `per_class_matrix()`, `compute_class_weights()` helpers
 - `src/featurize/selector.py` — `FeatureSelector` class; `fit(X, y, feature_names)` + `transform(X) → (X, SelectionResult)`
-- `src/train_dl/pyfunc.py` — `FlexMLPWrapper(mlflow.pyfunc.PythonModel)` for PyTorch evaluation; loads variable-depth FlexMLP from checkpoint
+- `src/train_vae/vae_trainer.py` — `Encoder`, `Decoder`, `DenoisingBetaVAE`, `DVAETrainer`; KL annealing; logs per-epoch ELBO + `kl_beta`
+- `src/augment/augmenter.py` — `CTGANAugmenter`; fits TVAE on Fatal rows; returns `AugmentResult`
+- `src/encode/encoder.py` — `LatentEncoder`; projects X_train_augmented + X_val/test → Z splits via frozen encoder (μ path, no sampling)
 - `great_expectations/gx/utils/ge_context_builder.py` — `GEContextBuilder`; infrastructure only; `build()` creates datasource + dataframe asset; no suite logic
 - `great_expectations/gx/utils/ge_manager.py` — `GEManager`; suite construction + preparation; `build_suite()` generates `ExpectationSuite` from `ColumnContract` objects using `row_condition` for sentinel exclusion (no `_RANGE_MOSTLY`); `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(df)` binds context and sanity-checks DataFrame
 - `great_expectations/gx/utils/ge_checkpoint_runner.py` — `GECheckpointRunner`; execution layer; `run(df)` uses the `BatchDefinition` registered by `GEManager`, builds a GE Checkpoint with `UpdateDataDocsAction` + `StoreValidationResultAction`, returns `CheckpointRunResult`
@@ -171,48 +190,50 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 
 ### Key Files
 
-- `params.yaml` — all pipeline parameters; `features.*`, `data.*`, `dl.*` (includes `weight_decay`), `feature_selection.*`, `tune.*` (Katib metadata only — no search space bounds)
-- `dvc.yaml` — 8-stage pipeline DAG with `deps`/`outs`/`params`
+- `params.yaml` — all pipeline parameters; `features.*` (incl. `cyclical_columns`), `data.*`, `vae.*` (KL annealing fields), `augment.*`, `dl.*`, `feature_selection.*`, `tune.*`
+- `dvc.yaml` — 10-stage pipeline DAG with `deps`/`outs`/`params`
 - `UBIQUITOUS_LANGUAGE.md` — canonical domain term glossary (constitution XII)
-- `.specify/memory/constitution.md` — v2.7.1, 16 non-negotiable principles
+- `.specify/memory/constitution.md` — v3.3.0, 17 non-negotiable principles
 - `great_expectations/gx/` — GE v1 file context root; suite in `expectations/`; HTML report in `uncommitted/data_docs/`
-- `great_expectations/gx/utils/` — GE utility layer: `ge_context_builder.py` (infrastructure: datasource + asset) → `ge_manager.py` (suite construction + preparation: build_suite, asset binding, BatchDefinition, pre-checks) → `ge_checkpoint_runner.py` (execution via GE Checkpoint)
+- `great_expectations/gx/utils/` — GE utility layer: `ge_context_builder.py` → `ge_manager.py` → `ge_checkpoint_runner.py`
 - `docs/data_contract.md` — human-readable column contract (dtype, ranges, null rates, sentinels)
 - `models/registry_receipt.json` — DVC output of register stage
 - `k8s/pvc.yaml` — hostPath PVC mounting project root at `/app` for all KFP pods
-- `k8s/katib/ml_experiment.yaml` — Katib Experiment CRD for ML HPO (search space + trial template)
-- `k8s/katib/dl_experiment.yaml` — Katib Experiment CRD for DL HPO
-- `airflow/dags/crash_ml_pipeline.py` — 8-task Airflow DAG; each task calls `dvc repro <stage>`
-- `pipelines/kubeflow/pipeline.py` — 8-component KFP pipeline; each component calls `dvc repro <stage>`
+- `k8s/katib/vae_experiment.yaml` — Katib Experiment CRD for β HPO (search space + trial template)
+- `airflow/dags/` — tutorial/learning DAGs only; not part of active pipeline
+- `pipelines/kubeflow/pipeline.py` — 10-component KFP pipeline; each component calls `dvc repro <stage>`
 - `docker/Dockerfile` — `python:3.12-slim` + uv + deps + `src/` + `dvc.yaml`
 - `.gitattributes` — `*.py text eol=lf`
 
 ### Specs
 
-- `specs/002-mlops-portfolio/` — active MLOps portfolio spec (design phase)
+- `specs/002-mlops-portfolio/` — active MLOps portfolio spec
   - `spec.md` — feature spec (grill-me reviewed 2026-04-23)
-  - `plan.md` — implementation plan
-  - `tasks.md` — T001–T079; T001–T019, T027–T028 complete; T020–T026, T029–T079 pending
+  - `plan.md` — implementation plan (updated 2026-04-29)
+  - `tasks.md` — T001–T121; Phases 1–3D complete; Phase 3E needs revision (encode); Phase 3F T101 done, T102–T103 pending; next entry point: T102/T103
+  - `contracts/stage-interface.md` — per-stage env var contracts (updated 2026-04-29)
+  - `data-model.md` — entities and artifact registry (updated 2026-04-29)
 
 ## MLflow Conventions
 
 - `MLFLOW_TRACKING_URI` — set in `params.yaml` under `mlflow.tracking_uri`; every stage calls `mlflow.set_tracking_uri(config.mlflow.tracking_uri)` first
-- Experiments: `crash-severity-ml` (PyCaret), `crash-severity-dl` (PyTorch), `crash-severity-tune` (Katib trials)
-- Mandatory metrics per run: `eout_macro_f1`, `eout_minority_recall`, `ein_macro_f1`, `generalisation_gap`
-- `mlflow.sklearn.autolog()` is **disabled** — all metrics logged via `mlflow.evaluate()`
+- Experiments: `crash-severity-vae` (β-VAE), `crash-severity-ml` (XGBoost), `crash-severity-dl` (MLP), `crash-severity-tune` (Katib trials)
+- Mandatory metrics per run: `eout_macro_f1`, `eout_fatal_recall`, `ein_macro_f1`, `generalisation_gap`
+- VAE-specific per-epoch metrics: `vae_elbo`, `vae_reconstruction_loss`, `vae_kl_loss`, `kl_beta`
+- `mlflow.sklearn.autolog()` and `mlflow.autolog()` are **disabled** — all metrics logged explicitly
 - Champion model alias: `models:/crash-severity@champion`
-- Featurize logs: `n_features_raw`, `n_features_selected`, `feature_selection_method`, `mlp_n_params`, `samples_per_param_ratio`
+- Featurize logs: `n_features_raw`, `n_features_selected`, `feature_selection_method`, `samples_per_param_ratio`
 
-## Constitution (v2.6.0)
+## Constitution (v3.3.0)
 
-15 non-negotiable principles at `.specify/memory/constitution.md`. Key ones:
+17 non-negotiable principles at `.specify/memory/constitution.md`. Key ones:
 
 - **I** Feature leakage prevention — no post-crash columns as model inputs
 - **II** 3-way split (70/15/15) — train fits weights; val used for HPO fitness + early stopping; test strictly reserved for final A/B evaluation only
-- **III** Class weights only — no SMOTE (`w₀=0.61`, `w₁=2.74`)
-- **IV** Sample complexity gate — `featurize` computes `N_train / n_params` (post-selection) and halts if ratio < 3.0
-- **V** MLflow mandatory metrics: `ein_macro_f1`, `eout_macro_f1`, `generalisation_gap`
-- **VI** Macro F1 primary metric; thresholds: F1 > 0.55, minority recall > 0.40
+- **III** At most three complementary imbalance mechanisms: (1) runtime-computed class weights, (2) CTGAN augmentation on X_train Fatal rows in dedicated `augment` DVC stage, (3) KL annealing to prevent posterior collapse in VAE. X_val/X_test NEVER augmented. Raw SMOTE/ADASYN/interpolation prohibited.
+- **IV** Sample complexity gate — `featurize` computes `N_train / n_params` and halts if ratio < 3.0
+- **V** MLflow mandatory metrics: `ein_macro_f1`, `eout_macro_f1`, `generalisation_gap`, `eout_fatal_recall`
+- **VI** Macro F1 primary metric; 3-class gates: F1 > 0.45, fatal recall > 0.30
 - **VII** DVC for all data and model versioning
 - **VIII** Great Expectations validation before any training stage
 - **XII** `UBIQUITOUS_LANGUAGE.md` maintained; all terms canonical
@@ -221,7 +242,7 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 - **XV** TDD for all `src/` code — red→green→refactor, vertical slices only
 - **XVI** GE is the exclusive data quality assertion layer — no ad-hoc checks in stage code or tests; boundary tests downstream of `validate` use `data/processed/raw.csv`, not `data/raw/`
 
-Constitution version: **v3.2.0** (last amended 2026-04-27)
+Constitution version: **v3.3.0** (last amended 2026-04-28)
 
 ## Design Rules (session-established)
 

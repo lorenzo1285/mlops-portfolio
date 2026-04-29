@@ -3,7 +3,7 @@
 **Input**: Design documents from `specs/002-mlops-portfolio/`
 **Prerequisites**: spec.md ✅ | plan.md ✅ | research.md ✅ | data-model.md ✅ | contracts/stage-interface.md ✅
 **Architecture**: VAE-based, 10-stage pipeline (validate→ingest→featurize→train_vae→encode→train_ml→train_dl→evaluate→tune→register)
-**Constitution**: v3.1.0 — TDD for all `src/` (XV); boundary tests only (XIV); GE exclusive QA layer (XVI)
+**Constitution**: v3.3.0 — TDD for all `src/` (XV); boundary tests only (XIV); GE exclusive QA layer (XVI); CTGAN augmentation on X_train only (III)
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -146,25 +146,100 @@
 
 ## Phase 3E: Encode Stage (US3)
 
-**Goal**: Frozen encoder produces Z_train/val/test; LSA augments Z_train fatal class to ≥5%.
+**Goal**: Frozen encoder projects CTGAN-augmented `X_train_augmented` → `Z_train_augmented`; `Z_val` and `Z_test` encoded from original splits unchanged. No LSA — CTGAN handles augmentation upstream.
 
-**Independent Test**: `dvc repro encode` → 4 `.npy` files exist. `np.unique(y_train_augmented)` → `[0, 1, 2]`. Fatal class fraction in `y_train_augmented` ≥ 0.05. `Z_val.shape[1] == 32`. No LSA applied to Z_val or Z_test.
+**Independent Test**: `dvc repro encode` → 3 `.npy` files exist (`Z_train_augmented`, `Z_val`, `Z_test`). `Z_train_augmented.shape[0] == len(X_train_augmented)`. `Z_val.shape[1] == latent_dim`. `Z_test.shape[1] == latent_dim`. No extra rows in Z_val or Z_test.
 
-- [ ] T091 [US3] **RED** — Write `tests/test_encode.py`: create a tiny `DVAETrainer` and train on dummy X to get a real encoder checkpoint; instantiate `LatentEncoder(encoder_path, encode_config, latent_dim=4)` with synthetic `(X_train, y_train, X_val, y_val, X_test)` where y_train has at least 10 Fatal-class (label=2) samples; call `.encode(...)` → assert `EncodeResult` with `Z_train_augmented.shape[1] == latent_dim`; assert fatal class fraction in `y_train_augmented` ≥ `lsa_target_ratio`; assert `Z_val.shape == (len(X_val), latent_dim)` (not augmented); assert `Z_test.shape == (len(X_test), latent_dim)` (not augmented); assert stage raises `RuntimeError` when fewer than `min_fatal_samples` Fatal rows exist in y_train. Run — confirm FAIL.
-- [ ] T092 [US3] **GREEN** — Implement `src/encode/encoder.py`: `LatentEncoder.encode(X_train, y_train, X_val, y_val, X_test) → EncodeResult`: load encoder checkpoint from `encoder_path`; set model to eval mode (`torch.no_grad()`); encode each split → μ vectors as Z (use μ directly, not sampled z, for deterministic encoding at inference time); check `n_fatal = (y_train == 2).sum()` — raise `RuntimeError` if `n_fatal < min_fatal_samples`; apply LSA to Z_train: compute `fatal_mean` and `fatal_std` per dimension from real fatal Z vectors; sample `n_synthetic = max(0, int(len(Z_train) * lsa_target_ratio) - n_fatal)` Gaussian vectors around centroid; stack `Z_train_augmented = np.vstack([Z_train, synthetic_z])`; `y_train_augmented = np.hstack([y_train, np.full(n_synthetic, 2)])`; return `EncodeResult(Z_train_augmented, Z_val, Z_test, y_train_augmented, n_real_fatal, n_synthetic)`
-- [ ] T093 [US3] **GREEN** — Create `src/encode/run.py`: load config; read env vars for encoder path, all X/y paths, output dir; instantiate `LatentEncoder`; call `.encode()`; save 4 numpy arrays; exit 0 on success, exit 1 on `RuntimeError` (too few fatal samples)
-- [ ] T094 [US3] Run `dvc repro encode` — confirm 4 arrays written; verify `Z_train_augmented.shape[1] == 32` and fatal class fraction ≥ 0.05
-- [ ] T095 [P] [US3] Confirm LSA isolation: load `Z_val.npy` and `Z_test.npy` — assert shapes match original split sizes from featurize (no extra rows); assert unique labels in `y_val.npy` and `y_test.npy` are unchanged from `y_val` / `y_test` produced by featurize
+- [ ] T091 [US3] **RED** — Rewrite `tests/test_encode.py`: create a tiny `DVAETrainer` and train on dummy X to get a real encoder checkpoint; instantiate `LatentEncoder(encoder_path, latent_dim=4)` with synthetic `(X_train_augmented, y_train_augmented, X_val, X_test)` — `X_train_augmented` already contains CTGAN-generated Fatal rows; call `.encode(...)` → assert `EncodeResult` with `Z_train_augmented.shape == (len(X_train_augmented), latent_dim)`; assert `Z_val.shape == (len(X_val), latent_dim)`; assert `Z_test.shape == (len(X_test), latent_dim)`; assert no LSA or synthetic row injection occurs inside encoder. Run — confirm FAIL.
+- [ ] T092 [US3] **GREEN** — Rewrite `src/encode/encoder.py`: `LatentEncoder.encode(X_train_augmented, y_train_augmented, X_val, X_test) → EncodeResult`: load encoder checkpoint from `encoder_path`; set model to eval mode (`torch.no_grad()`); encode each split → μ vectors as Z (use μ directly, not sampled z, for deterministic encoding); no LSA — augmentation was handled by the `augment` stage; return `EncodeResult(Z_train_augmented, Z_val, Z_test)`
+- [ ] T093 [US3] **GREEN** — Rewrite `src/encode/run.py`: load config; read `X_TRAIN_AUG_PATH`, `Y_TRAIN_AUG_PATH`, `X_VAL_PATH`, `X_TEST_PATH`, `ENCODER_PATH`, `OUTPUT_DIR`, `MLFLOW_TRACKING_URI` env vars; instantiate `LatentEncoder`; call `.encode()`; save 3 numpy arrays + pass-through `y_train_augmented.npy`; exit 0 on success, exit 1 on error
+- [ ] T094 [US3] Run `dvc repro encode` — confirm `Z_train_augmented.npy`, `Z_val.npy`, `Z_test.npy` written; verify `Z_train_augmented.shape[1] == latent_dim`; verify row count matches `X_train_augmented`
+- [ ] T095 [P] [US3] Confirm val/test isolation: load `Z_val.npy` and `Z_test.npy` — assert shapes match original split sizes from featurize (no extra rows); assert `Z_val.shape[0] == len(X_val)` and `Z_test.shape[0] == len(X_test)`
 
-**Checkpoint**: US3 complete — ELBO converges, Z vectors produced for all splits, LSA applied to Z_train only, fatal fraction ≥ 5%, Z_val and Z_test untouched.
+- [ ] T100 [US3] Create `notebooks/vae_eda.ipynb` — Phase 3E checkpoint notebook: load `X_train/val/test.npy` + `y_*` + VAE encoder/decoder checkpoints; run mean-path reconstructions (no sampling); plot (a) per-sample MSE histogram, (b) per-feature MSE bar chart, (c) real vs reconstructed KDE overlays for numeric features, (d) KS-test table per feature, (e) latent-space PCA scatter coloured by severity class, (f) reconstruction MSE boxplot per class, (g) posterior variance per latent dim; notebook must include a prerequisite cell that raises a clear error if `enc_ckpt['input_dim'] != X_all.shape[1]` (stale checkpoint guard)
+
+**Checkpoint**: US3 complete — ELBO converges, Z vectors produced for all splits from CTGAN-augmented X_train, no LSA in encode stage, Z_val and Z_test untouched; VAE EDA notebook confirms reconstruction fidelity and latent structure.
+
+---
+
+## Phase 3F: Config Foundation (Blocking Prerequisites for Phases 3G–4B)
+
+**Purpose**: params.yaml and config.py updated before any cyclical-encoding, KL-annealing, augment, or train_dl code is written. All downstream phases depend on this.
+
+- [x] T101 Amend `.specify/memory/constitution.md` Principle III: bump version to 3.3.0; add third permitted mechanism — "Generative augmentation (CTGAN/TVAE) is permitted in a dedicated `augment` DVC stage on the training split only; augmented data must be a DVC-tracked artifact; val and test splits must never be augmented"; update Quality Gates table entry to reflect three mechanisms
+- [ ] T102 [P] Update `params.yaml`: (a) remove HOUR from `features.numeric_columns`; remove MONTH from `features.ordinal_columns`; add `features.cyclical_columns: {HOUR: 24, MONTH: 12}`; (b) update `vae.*`: `latent_dim: 8`, `lr: 0.0005`, replace `beta: 1.0` with `beta_start: 0.0`, `beta_max: 0.5`, `warmup_epochs: 15`; (c) remove `encode.*` section (no LSA parameters needed — encode stage is now a pure projection pass); (d) add `augment` section: `tvae_epochs: 500`, `target_fatal_ratio: 0.05`, `random_state: 42`; (e) update `dl.*` section for shallow MLP: `input_dim: 8` (= latent_dim), `hidden_dim: 64`, `dropout_p: 0.1`, `epochs: 100`, `patience: 10`, `batch_size: 256`, `lr: 0.001`, `experiment_name: crash-severity-dl`
+- [ ] T103 [P] Update `src/config.py`: (a) update `VAEConfig`: replace single `beta: float` field with `beta_start: float`, `beta_max: float`, `warmup_epochs: int`; (b) update `EncodeConfig`: remove `lsa_target_ratio` and `min_fatal_samples` fields (LSA removed); (c) add `AugmentConfig(tvae_epochs: int, target_fatal_ratio: float, random_state: int)` dataclass; (d) update `DLConfig`: set fields to `input_dim: int`, `hidden_dim: int`, `dropout_p: float`, `epochs: int`, `patience: int`, `batch_size: int`, `lr: float`, `experiment_name: str`; (e) add `AugmentConfig` to `ProjectConfig` and `load_config()`; remove any `CVAEConfig` if present
+
+**Checkpoint**: `params.yaml` has `augment.*`, `features.cyclical_columns`, updated `vae.*` with annealing fields, updated `dl.*` for shallow MLP; `VAEConfig` has annealing fields; `AugmentConfig`/`DLConfig` importable from `src/config.py`; `EncodeConfig` has no LSA fields; constitution III at v3.3.0.
+
+---
+
+## Phase 3G: Featurize — Cyclical Encoding [US3]
+
+**Goal**: MONTH and HOUR replaced by sine/cosine pairs in featurize; `X_train.npy` has `MONTH_sin`, `MONTH_cos`, `HOUR_sin`, `HOUR_cos`; feature count changes by +2 (2 removed, 4 added).
+
+**Independent Test**: After `dvc repro featurize`, load `X_train.npy` and assert 4 cyclical columns present in feature names; values bounded `[-1.0, 1.0]`; no standalone MONTH or HOUR integer column.
+
+- [ ] T104 [US3] **RED** — Update `tests/test_featurize.py`: add assertions that the list returned by `preprocessor.get_feature_names_out()` includes `num__MONTH_sin`, `num__MONTH_cos`, `num__HOUR_sin`, `num__HOUR_cos`; assert no feature named `ord__MONTH` or `num__HOUR`; assert all four cyclical values are in `[-1.0, 1.0]`; assert `X_train.shape[1]` == previous column count + 2. Run — confirm FAIL.
+- [ ] T105 [US3] **GREEN** — Update `src/featurize/featurizer.py`: add `_apply_cyclical(df)` private method that reads `cyclical_columns` dict (`{HOUR: 24, MONTH: 12}`) from config; for each `(col, period)`: adds `{col}_sin = sin(2π × ordinal_integer / period)` and `{col}_cos = cos(2π × ordinal_integer / period)` columns to df; drops original col; update `_select_and_recode` to call `_apply_cyclical` after recoding; add the four sin/cos column names to `numeric_cols` in `_fit_preprocess`; remove HOUR from `numeric_cols` and MONTH from `ord_names` lookups; update `dvc.yaml` featurize `params` to include `features.cyclical_columns`
+
+**Checkpoint**: `dvc repro featurize` exits 0; all X arrays have 4 cyclical columns; MONTH ordinal and HOUR numeric columns absent; downstream train_vae and encode re-run due to changed X shape.
+
+---
+
+## Phase 3H: train_vae — KL Annealing Fix [US3]
+
+**Goal**: `DVAETrainer` applies linear KL warmup (`beta: 0 → beta_max` over `warmup_epochs`) instead of fixed `beta=1.0`; posterior collapse eliminated.
+
+**Independent Test**: After `dvc repro train_vae`, open MLflow `crash-severity-vae` → confirm `kl_beta` logged at step 0 = 0.0 and at step `warmup_epochs` = `beta_max`; `vae_kl_loss` near-zero for first `warmup_epochs` epochs then rises.
+
+- [ ] T106 [US3] **RED** — Update `tests/test_train_vae.py`: add assertion that MLflow run logs metric `kl_beta` at `step=0` with value `0.0`; assert `kl_beta` at `step=warmup_epochs` equals `beta_max`; assert encoder output has `std > 0.05` across all `latent_dim` dims on synthetic data (no total collapse). Run — confirm FAIL.
+- [ ] T107 [US3] **GREEN** — Update `src/train_vae/vae_trainer.py` `DVAETrainer.train()`: each epoch compute `beta_t = min(vae_config.beta_max, vae_config.beta_start + (vae_config.beta_max - vae_config.beta_start) * epoch / max(1, vae_config.warmup_epochs))`; pass `beta_t` into `DenoisingBetaVAE.loss_function(x_hat, x_clean, mu, log_var, beta=beta_t)` instead of stored `self.beta`; remove `self.beta` from `DenoisingBetaVAE.__init__`; log `kl_beta` per epoch with `step=epoch`
+
+**Checkpoint**: KL beta ramps 0 → beta_max over warmup_epochs; `kl_beta` logged per epoch; posterior collapse eliminated; existing T086–T095 tests still green.
+
+---
+
+## Phase 4A: Augment Stage — CTGAN Fatal Class Augmentation [US4]
+
+**Goal**: New `augment` DVC stage generates CTGAN/TVAE synthetic Fatal training samples from `X_train.npy`, outputs `X_train_augmented.npy` and `y_train_augmented.npy` as tracked DVC artifacts; fatal class fraction ≥ `augment.target_fatal_ratio`.
+
+**Independent Test**: `dvc repro augment` → `data/processed/X_train_augmented.npy` and `data/processed/y_train_augmented.npy` exist; `fatal_fraction(y_train_augmented) >= 0.05`; `X_train_augmented.shape[1] == X_train.shape[1]`; non-fatal row count unchanged.
+
+- [ ] T108 [P] Create `src/augment/` package: `src/augment/__init__.py`; add `ctgan>=0.10` to `pyproject.toml`; run `uv sync`
+- [ ] T109 [P] Add `augment` stage to `dvc.yaml` (positioned after `featurize`, parallel with `train_vae`, both feeding into `encode`): `cmd: python -m src.augment.run`; `deps: [src/augment/run.py, src/augment/augmenter.py, data/processed/X_train.npy, data/processed/y_train.npy, src/config.py]`; `params: [augment.*, mlflow.tracking_uri]`; `outs: [data/processed/X_train_augmented.npy, data/processed/y_train_augmented.npy]`; update `encode` stage `deps` to use `data/processed/X_train_augmented.npy` and `data/processed/y_train_augmented.npy` instead of `X_train.npy` and `y_train.npy`
+- [ ] T110 [US4] **RED** — Write `tests/test_augmenter.py`: create `AugmentConfig(tvae_epochs=2, target_fatal_ratio=0.15, random_state=42)`; instantiate `CTGANAugmenter(config)`; build synthetic `X_train` (60 rows × 8 cols), `y_train` (10 Fatal=2 rows, 50 non-Fatal); call `augmenter.augment(X_train, y_train) → AugmentResult`; assert `result.X_augmented.shape[1] == 8`; assert fatal fraction in `result.y_augmented >= 0.15`; assert non-fatal row count in `result.y_augmented == 50`; assert `result.n_real_fatal == 10`; assert `result.n_synthetic > 0`; assert `RuntimeError` raised when Fatal rows < 10. Run — confirm FAIL.
+- [ ] T111 [US4] **GREEN** — Implement `src/augment/augmenter.py`: `AugmentResult(X_augmented: np.ndarray, y_augmented: np.ndarray, n_real_fatal: int, n_synthetic: int)` dataclass; `CTGANAugmenter(augment_config: AugmentConfig)` with `augment(X_train: np.ndarray, y_train: np.ndarray) → AugmentResult`: (a) validate `n_fatal = (y_train == 2).sum() >= 10` — raise `RuntimeError` if not; (b) extract `X_fatal = X_train[y_train == 2]` as a `pd.DataFrame`; (c) fit `TVAE(epochs=augment_config.tvae_epochs, cuda=False)` on `X_fatal`; (d) compute `n_synthetic = max(0, ceil((target × len(X_train) - n_fatal) / (1 − target)))`; (e) `synthetic_np = tvae.sample(n_synthetic).to_numpy()`; (f) stack `X_augmented = np.vstack([X_train, synthetic_np])`; `y_augmented = np.hstack([y_train, np.full(n_synthetic, 2)])`; return `AugmentResult`
+- [ ] T112 [US4] **GREEN** — Create `src/augment/run.py`: load config via `src/config.py`; read `X_TRAIN_PATH`, `Y_TRAIN_PATH`, `X_AUG_OUTPUT`, `Y_AUG_OUTPUT`, `MLFLOW_TRACKING_URI` env vars with config defaults; `mlflow.set_tracking_uri`; instantiate `CTGANAugmenter(config.augment)`; call `.augment(X_train, y_train)`; save `X_train_augmented.npy` and `y_train_augmented.npy`; log `n_real_fatal`, `n_synthetic`, `fatal_fraction_after` to MLflow; exit 0 on success, exit 1 on `RuntimeError`
+- [ ] T113 [US4] Run `dvc repro augment` — confirm `X_train_augmented.npy` and `y_train_augmented.npy` written; verify `(y_train_augmented == 2).mean() >= augment.target_fatal_ratio`; verify `X_train_augmented.shape[1] == X_train.shape[1]`
+
+**Checkpoint**: augment stage complete; CTGAN Fatal samples generated; fatal fraction at target; both augmented arrays DVC-tracked.
+
+---
+
+## Phase 4B: train_dl Stage — Shallow MLP on Z-space [US4]
+
+**Goal**: Shallow MLP (`Input(latent_dim) → Linear(64) → ReLU → Dropout → Linear(3)`) trained on `Z_train_augmented` with class weights and early stopping; 10-seed `crash-severity-dl` MLflow experiment; `models/mlp_model.pth` artifact written.
+
+**Independent Test**: `dvc repro train_dl` → exactly 10 runs in `crash-severity-dl`; each run has `eout_macro_f1`, `eout_fatal_recall`, `ein_macro_f1`, `generalisation_gap`, `per_class_matrix.json` artifact; `models/mlp_model.pth` exists and loads.
+
+- [ ] T114 [P] Verify `src/train_dl/` package exists with `__init__.py`; ensure stub from T016 is in place
+- [ ] T115 [P] Update `dvc.yaml` `train_dl` stage: `cmd: python -m src.train_dl.run`; `deps: [src/train_dl/run.py, src/train_dl/trainer.py, data/processed/Z_train_augmented.npy, data/processed/y_train_augmented.npy, data/processed/Z_val.npy, data/processed/y_val.npy, data/processed/Z_test.npy, data/processed/y_test.npy, src/config.py]`; `params: [dl.*, model.*, ab_test.*, mlflow.*]`; `outs: [models/mlp_model.pth]`; confirm `evaluate` stage `deps` includes `models/mlp_model.pth`
+- [ ] T116 [US4] **RED** — Write `tests/test_train_dl.py`: instantiate `DLTrainer` with minimal `DLConfig(input_dim=8, hidden_dim=16, dropout_p=0.1, epochs=3, patience=10, batch_size=32, lr=0.001, experiment_name='test-dl')`; build synthetic `Z_train` (60 × 8), `y_train` (3 classes, at least 5 per class), `Z_val` (20 × 8), `y_val`, `Z_test` (20 × 8), `y_test`; call `trainer.train(Z_train, y_train, Z_val, y_val, Z_test, y_test) → DLTrainResult`; assert `result.best_epoch >= 1`; assert `mlp_model.pth` written and loadable; assert MLflow run exists in `test-dl` with `eout_macro_f1`, `eout_fatal_recall`, `ein_macro_f1`, `generalisation_gap` logged; assert `per_class_matrix.json` artifact present; assert `mlflow.sklearn.autolog()` was NOT used. Run — confirm FAIL.
+- [ ] T117 [US4] **GREEN** — Implement `src/train_dl/trainer.py`: `DLTrainResult(best_epoch, best_val_loss, model_path, run_id, seed)` dataclass; `DLTrainer(dl_config, mlflow_config, seeds, model_config)` with `train(Z_train, y_train, Z_val, y_val, Z_test, y_test) → DLTrainResult`: `mlflow.autolog(disable=True)`; compute class weights via `compute_class_weights(y_train, n_classes=3)` from `src/metrics.py`; seed loop — for each seed: build `ShallowMLP(input_dim, hidden_dim, n_classes, dropout_p)` = `Linear(input_dim, hidden_dim) → ReLU → Dropout(dropout_p) → Linear(hidden_dim, n_classes)`; `CrossEntropyLoss(weight=class_weights)`; Adam; DataLoader; per-epoch train + val loss; early stopping on val loss (patience); after training evaluate on Z_test: log mandatory metrics `eout_macro_f1`, `eout_fatal_recall`, `ein_macro_f1`, `generalisation_gap`; log `per_class_matrix(y_test, y_pred, ['PDO','Injury','Fatal'])` as JSON artifact; track best seed by `eout_macro_f1`; save checkpoint; return `DLTrainResult`
+- [ ] T118 [US4] **GREEN** — Create `src/train_dl/run.py`: load config via `src/config.py`; read `Z_TRAIN_PATH`, `Y_TRAIN_PATH`, `Z_VAL_PATH`, `Y_VAL_PATH`, `Z_TEST_PATH`, `Y_TEST_PATH`, `MODEL_OUTPUT_PATH`, `MLFLOW_TRACKING_URI` env vars with config defaults; `mlflow.set_tracking_uri`; `mlflow.set_experiment(config.dl.experiment_name)`; instantiate `DLTrainer(config.dl, config.mlflow, config.ab_test.seeds, config.model)`; call `.train()`; save best checkpoint to `MODEL_OUTPUT_PATH`; exit 0 on success, exit 1 on error
+- [ ] T119 [US4] Run `dvc repro train_dl` — confirm exactly 10 runs in `crash-severity-dl`; verify `models/mlp_model.pth` exists and is loadable
+- [ ] T120 [US4] Open MLflow UI → `crash-severity-dl` → select any run → confirm `eout_macro_f1`, `eout_fatal_recall`, `per_class_matrix.json` present; confirm `generalisation_gap` logged; confirm no autolog params
+
+**Checkpoint**: US4 (MLP) complete — 10-seed shallow MLP on Z-space; cross-entropy + class weights; early stopping; mandatory metrics and per-class matrix logged; `models/mlp_model.pth` artifact written.
 
 ---
 
 ## Phase 4: Multi-Class A/B Test (US4)
 
-**Goal**: XGBoost and MLP each trained N=10 seeds on Z_train_augmented; Welch's t-test produces p-value and declares winner; winner registered as `@champion`.
+**Goal**: XGBoost (tree-based, Z-space) and MLP (neural, Z-space) each trained N=10 seeds; Welch's t-test produces p-value and declares winner; winner registered as `@champion`.
 
-**Independent Test**: `dvc repro train_ml train_dl evaluate register` → 10 runs per MLflow experiment; `docs/ab_test_comparison.json` has `p_value`, `cohens_d`, `winner`, `gates_passed`; `per_class_matrix.json` artifact visible per run; `mlflow.pyfunc.load_model("models:/crash-severity@champion")` loads in < 30s.
+**Independent Test**: `dvc repro train_ml train_dl evaluate register` → 10 runs per MLflow experiment; `docs/ab_test_comparison.json` has `p_value`, `cohens_d`, `winner`, `gates_passed`; `mlflow.pyfunc.load_model("models:/crash-severity@champion")` loads in < 30s.
 
 ### XGBoost Training (train_ml)
 
@@ -173,20 +248,22 @@
 - [ ] T036b [US4] **GREEN** — Rewrite `src/train_ml/run.py`: load config; read `TRAIN_Z_PATH`, `TRAIN_Y_PATH`, `VAL_Z_PATH`, `VAL_Y_PATH`, `TEST_Z_PATH`, `TEST_Y_PATH`, `MODEL_OUTPUT_PATH` env vars; instantiate `MLTrainer(config.mlflow, config.model, config.ab_test.seeds)`; call `.train()`; save best pkl; exit 0/1
 - [ ] T037 [US4] Run `dvc repro train_ml` — confirm 10 MLflow runs in `crash-severity-ml`; open MLflow UI, inspect `per_class_matrix.json` artifact for one run; confirm Fatal class metrics present
 
-### MLP Training (train_dl)
+### MLP Training (train_dl) — see Phase 4B (T114–T120)
 
-- [ ] T038 [US4] **RED** — Rewrite `tests/test_train_dl.py` for MLP on Z vectors (no NAS): assert with `ab_test.seeds=[0]`, 1 MLflow run in `crash-severity-dl` tagged `seed=0`, `model_type=pytorch-mlp`, `architecture=32-64-3-dropout0.3`; assert per-epoch `ein_loss`/`eout_loss`/`gap_f1` logged with `step=epoch`; assert final `eout_macro_f1` and `eout_fatal_recall` logged; assert `models/mlp_model.pth` loadable with `torch.load` containing `state_dict`, `input_dim=32`, `hidden_dim=64`, `n_classes=3`. Run — confirm FAIL.
-- [ ] T039 [US4] **RED** — Rewrite `tests/test_pyfunc.py`: save a minimal 3-class `MLP(32→64→3)` checkpoint; instantiate `MLPWrapper` from `src/train_dl/pyfunc.py`; call `predict(context, pd.DataFrame(Z_test[:5]))` → assert output is numpy array of shape `(5,)` with values in `{0, 1, 2}`. Run — confirm FAIL.
-- [ ] T040 [US4] **GREEN** — Rewrite `src/train_dl/pyfunc.py`: `MLPWrapper(mlflow.pyfunc.PythonModel)`; `load_context` loads checkpoint, reconstructs `MLP(input_dim=32, hidden_dim=64, n_classes=3)` with saved weights; `predict` applies `softmax` → `argmax` → returns int numpy array
-- [ ] T041 [US4] **GREEN** — Rewrite `src/train_dl/trainer.py`: define `MLP(nn.Module)` with `__init__(input_dim=32, hidden_dim=64, n_classes=3, dropout=0.3)`: `Linear(32,64) → ReLU → Dropout(0.3) → Linear(64,3)` (no BatchNorm — Z vectors are already normalised by the VAE); implement `DLTrainer.train(Z_train, y_train, Z_val, y_val, Z_test, y_test) → DLTrainResult`; no NAS; loop over seeds; compute `class_weights = compute_class_weights(y_train, 3)` → `CrossEntropyLoss(weight=torch.tensor(class_weights, dtype=torch.float))`; Adam(lr from config); early stopping on val loss (patience from config); log per-epoch metrics with `step=epoch`; log final `eout_macro_f1`, `eout_fatal_recall`, `per_class_matrix` artifact; tag `architecture=32-64-3-dropout0.3`; track best seed; return `DLTrainResult`
-- [ ] T042 [US4] **GREEN** — Create `src/train_dl/run.py`: load config; read Z path env vars; instantiate `DLTrainer(config.mlflow, config.dl, config.ab_test.seeds)`; call `.train()`; save best checkpoint dict (`state_dict`, `input_dim=32`, `hidden_dim`, `n_classes=3`) to `MODEL_OUTPUT_PATH`; exit 0/1
-- [ ] T043 [US4] ~~Superseded by T041 and T042~~
-- [ ] T044 [US4] Run `dvc repro train_dl` — confirm 10 runs in `crash-severity-dl`; verify per-epoch `ein_loss`/`eout_loss` visible as line charts in MLflow UI; verify early stopping fired before max epochs for at least one seed
+> **T038–T044 are superseded. MLP implementation is in Phase 4B (T114–T120) using Z-space inputs from the encode stage. Do not implement T038–T044.**
+
+- [ ] T038 ~~SUPERSEDED~~
+- [ ] T039 ~~SUPERSEDED~~
+- [ ] T040 ~~SUPERSEDED~~
+- [ ] T041 ~~SUPERSEDED~~
+- [ ] T042 ~~SUPERSEDED~~
+- [ ] T043 ~~SUPERSEDED~~
+- [ ] T044 ~~SUPERSEDED~~
 
 ### Evaluate + Register
 
 - [ ] T046 [US4] **RED** — Rewrite `tests/test_evaluate.py`: mock N=3 MLflow runs per experiment with `eout_macro_f1` scores above and below thresholds; assert exit 0 + `docs/ab_test_comparison.json` contains `p_value`, `cohens_d`, `ci_ml`, `ci_dl`, `winner`, `significant`, `gates_passed`; **assert `gates_passed=false` when winner mean F1 ≤ 0.45 or winner mean fatal recall ≤ 0.30**; assert exit 1 when gates fail. Run — confirm FAIL.
-- [ ] T047 [US4] **GREEN** — Rewrite `ABEvaluator.evaluate(Z_test, y_test)` in `src/evaluate/evaluator.py`: query MLflow for `eout_macro_f1` from `crash-severity-ml` (tagged `xgboost`) and `crash-severity-dl` (tagged `pytorch-mlp`); Welch's t-test; Cohen's d; 95% CIs; declare winner; assert `mean_macro_f1 > model.macro_f1_threshold (0.45)` AND `mean_fatal_recall > model.fatal_recall_threshold (0.30)`; return `EvaluationResult`. Create `src/evaluate/run.py`: load config + Z_test/y_test; call `.evaluate()`; write JSON reports; exit 1 if gates fail
+- [ ] T047 [US4] **GREEN** — Implement `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py`: query MLflow for `eout_macro_f1` from `crash-severity-ml` (N=10 seeds, XGBoost on Z-space) and `crash-severity-dl` (N=10 seeds, MLP on Z-space); Welch's t-test on the two F1 distributions; Cohen's d; 95% CIs; if p ≥ 0.05 → XGBoost wins (tiebreak); assert winner's `mean_macro_f1 > 0.45` AND `mean_fatal_recall > 0.30`; return `EvaluationResult(winner, p_value, cohens_d, ml_mean_f1, dl_mean_f1, ...)`. Create `src/evaluate/run.py`: load config; instantiate `ABEvaluator(config.mlflow, config.ab_test, config.model)`; call `.evaluate()`; write `docs/evaluation_report.json` and `docs/ab_test_comparison.json`; exit 1 if gates fail
 - [ ] T048 [US4] Run `dvc repro evaluate` — confirm JSON output has all required fields; verify `gates_passed` and winner printed to stdout
 - [ ] T049 [US4] **RED** — Write `tests/test_register.py`: assert with `gates_passed=true` → exit 0, `models:/crash-severity@champion` resolvable, `models/registry_receipt.json` exists; assert with `gates_passed=false` → exit 1, no registry mutation. Run — confirm FAIL.
 - [ ] T050 [US4] **GREEN** — Implement `ModelRegistrar.register(winner, run_id)` in `src/register/registrar.py`; create `src/register/run.py`
@@ -206,7 +283,7 @@
 - [ ] T053 [P] Create `k8s/katib/vae_experiment.yaml`: Katib `Experiment` CRD; objective metric `val_macro_f1` (maximize, printed as `val_macro_f1=<value>` to stdout); algorithm `bayesianoptimization`; `maxTrialCount: 5` (one per β value), `parallelTrialCount: 1`; parameter: `beta` with feasibleSpace `{0.5, 1.0, 2.0, 4.0, 8.0}` (list type); trialTemplate command: `python -m src.tune.trial --beta={{.HyperParameters.beta}} --winner={{winner}}` inside `mlops-portfolio:latest` container; metrics collector reads `val_macro_f1=` from stdout
 - [ ] T054 ~~SUPERSEDED — `k8s/katib/ml_experiment.yaml` replaced by `vae_experiment.yaml` (β HPO replaces classifier HPO)~~
 - [ ] T055 ~~SUPERSEDED — `k8s/katib/dl_experiment.yaml` replaced by `vae_experiment.yaml`~~
-- [ ] T056 [US5] **RED + GREEN** — Rewrite `src/tune/trial.py`: accepts `--beta <float>` and `--winner <ml|dl>` as argparse args; loads all X/y splits from PVC paths; instantiates `DVAETrainer` with candidate β; calls `trainer.train(X_all)` to get encoder checkpoint; instantiates `LatentEncoder` with the new checkpoint; calls `encoder.encode(X_train, y_train, X_val, y_val, X_test)` (LSA applied); trains winner classifier on `Z_train_augmented` (1 seed, seed=0 for trials); evaluates on **Z_val** (not Z_test — constitution II); logs full trial to MLflow `crash-severity-tune` tagged `beta=<value>`, `winner=<ml|dl>`, `trial_type=katib`; **prints `val_macro_f1=<float>` on last stdout line** (required by Katib metrics collector — this is the fitness signal); exits 0
+- [ ] T056 [US5] **RED + GREEN** — Rewrite `src/tune/trial.py`: accepts `--beta <float>` and `--winner <ml|dl>` as argparse args; loads all X/y splits from PVC paths; instantiates `DVAETrainer` with candidate β; calls `trainer.train(X_all)` to get encoder checkpoint; loads `X_train_augmented` (pre-generated by augment stage, not re-run per trial); instantiates `LatentEncoder` with the new checkpoint; calls `encoder.encode(X_train_augmented, y_train_augmented, X_val, X_test)` (no LSA — CTGAN augmentation already applied); trains winner classifier on `Z_train_augmented` (1 seed, seed=0 for trials); evaluates on **Z_val** (not Z_test — constitution II); logs full trial to MLflow `crash-severity-tune` tagged `beta=<value>`, `winner=<ml|dl>`, `trial_type=katib`; **prints `val_macro_f1=<float>` on last stdout line** (required by Katib metrics collector — this is the fitness signal); exits 0
 - [ ] T057 [US5] **RED** — Write `tests/test_tune.py`: mock Kubernetes client; assert `HyperparamTuner.tune()` submits Experiment with correct name/namespace; assert it reads `currentOptimalTrial.parameterAssignments.beta`; assert `params.yaml` updated with `tune.best_params.beta` after `run.py` completes. Run — confirm FAIL.
 - [ ] T058 [US5] **GREEN** — Implement `HyperparamTuner.tune()` in `src/tune/tuner.py`: load `k8s/katib/vae_experiment.yaml`; inject winner into trial template; submit via `kubernetes.client.CustomObjectsApi`; poll `status.conditions` until Succeeded/Failed; read `status.currentOptimalTrial.parameterAssignments` → extract `beta`; return `TuneResult(best_beta, best_val_macro_f1, n_trials)`. Create `src/tune/run.py`: load config; read winner from `REPORT_PATH`; call `HyperparamTuner.tune()`; write `tune.best_params.beta = <value>` to `params.yaml` with `yaml.safe_dump`; exit 0
 - [ ] T059 [US5] Run `dvc repro tune` on local Kubernetes — confirm Katib Experiment in Katib UI; confirm 5 MLflow runs in `crash-severity-tune`; confirm `params.yaml` has `tune.best_params.beta` set to a float value
@@ -269,15 +346,21 @@
 ```
 Phase 1 (Setup) ✅
   └── Phase 2 (Foundational) ✅ + T081-T085 extensions
-        └── Phase 3A (US1: Featurize TDD)           ← MVP start
+        └── Phase 3A (US1: Featurize TDD) ✅
               ├── Phase 3b (Data Contract) ✅
-              │     └── Phase 3B (US2: GE Validate)
-              └── Phase 3C (DVC Pipeline Integration)
-                    └── Phase 3D (US3: train_vae)    ← NEW
-                          └── Phase 3E (US3: encode) ← NEW
-                                ├── Phase 4 (US4: train_ml/train_dl/evaluate/register)
-                                │     └── Phase 4b (US5: Katib β-HPO)
-                                └── Phase 5 (US6: KFP)
+              │     └── Phase 3B (US2: GE Validate) ✅
+              └── Phase 3C (DVC Pipeline Integration) ✅
+                    └── Phase 3F (Config Foundation: T101-T103)  ← BLOCKER
+                          ├── Phase 3G (Featurize Cyclical: T104-T105) [US3]
+                          │     └── Phase 3H (train_vae KL Annealing: T106-T107) [US3]
+                          │           ├── Phase 3E (encode: T091-T095) [US3] ← NEEDS REVISION
+                          │           └── Phase 4A (augment: T108-T113) [US4]
+                          │                 └── (feeds encode: augment + train_vae → encode)
+                          │                       ├── Phase 4 (train_ml: T035-T037) [US4]
+                          │                       └── Phase 4B (train_dl MLP: T114-T120) [US4]
+                          │                             └── (join) → evaluate → register
+                          │                                   └── Phase 4b (US5: Katib β-HPO)
+                          └── Phase 5 (US6: KFP)
   Phase 6 (Polish) — after all stories complete
 ```
 
@@ -287,8 +370,9 @@ Phase 1 (Setup) ✅
 |---|---|---|---|
 | 1 | validate | — | ingest |
 | 2 | ingest | — | featurize |
-| 3 | featurize | — | train_vae |
-| 4 | train_vae | — | encode |
+| 3 | featurize | — | train_vae, augment |
+| 4a | train_vae | augment | encode |
+| 4b | augment | train_vae | encode |
 | 5 | encode | — | train_ml, train_dl |
 | 6a | train_ml | train_dl | evaluate |
 | 6b | train_dl | train_ml | evaluate |
@@ -296,12 +380,17 @@ Phase 1 (Setup) ✅
 | 8 | tune | — | (invalidates train_vae → register) |
 | 9 | register | — | — |
 
+> `train_vae` and `augment` run in parallel (both depend on featurize only). `encode` waits for both. `train_ml` and `train_dl` run in parallel (both on Z-space from encode).
+
 ### Parallel Opportunities
 
 - T081–T085 (Phase 2 extensions) — all parallel
 - T023–T026 (DVC verification) — T023/T024 sequential; T025/T026 parallel after T024
-- T035, T038, T039 (test writing in Phase 4) — all parallel
-- T036b and T042 (run.py files for train_ml and train_dl) — parallel
+- T101, T102, T103 (Phase 3F config foundation) — T102 and T103 parallel after T101
+- T104, T106 (Phase 3G featurize + Phase 3H VAE test-writing) — parallel after T101–T103
+- T108, T109 (augment package + dvc.yaml) — parallel after T101–T103
+- T114, T115 (train_dl package + dvc.yaml) — parallel after T101–T103
+- T035 (train_ml RED) — parallel with T110, T116 (augment + MLP RED tests) after Phase 3G/3H complete
 - T066–T070 (Docker + Kubernetes setup) — T066/T067 sequential; T068–T070 sequential after T067
 - T075, T076, T077, T079, T080 (Polish) — all parallel
 
@@ -309,23 +398,23 @@ Phase 1 (Setup) ✅
 
 ## Implementation Strategy
 
-### MVP First (US1 — DVC Reproducibility)
+### MVP First (US1 — DVC Reproducibility) ✅ COMPLETE
 
-1. Complete Phase 1 + 2 (already done ✅ + T081–T085)
-2. Complete Phase 3A (T020, T021 — 3-class featurize)
-3. Complete Phase 3C T022 — wire the 10-stage dvc.yaml
-4. Run `dvc repro featurize` — arrays exist, pipeline caches
-5. **STOP and VALIDATE**: `dvc status` → all cached; `y_train` values = {0,1,2}
+Phases 1–3C are done. Current entry point is Phase 3F.
 
-### Incremental Delivery
+### Incremental Delivery (CTGAN + MLP track)
 
-1. Phase 2 extensions (T081–T085) → VAE scaffolding ready
-2. Phase 3A–3C → featurize + DVC pipeline wired
-3. Phase 3D–3E → VAE trains; Z vectors produced (US3 checkpoint)
-4. Phase 4 → A/B test complete; champion registered (US4 checkpoint)
-5. Phase 4b → β tuned via Katib (US5 checkpoint)
-6. Phase 5 → KFP orchestration (US6 checkpoint)
-7. Phase 6 → constitutional gates asserted; full reproducibility confirmed
+1. **Phase 3F** (T101–T103) — config foundation; blocks everything downstream
+2. **Phase 3G** (T104–T105) — cyclical encoding in featurize; re-runs train_vae + encode
+3. **Phase 3H** (T106–T107) — KL annealing in train_vae; fixes posterior collapse
+4. **Phase 3E** (T091–T095) — encode stage revision; drops LSA; uses X_train_augmented
+5. **Phase 4A** (T108–T113) — augment stage; CTGAN Fatal class augmentation on X_train
+6. **Phase 4 XGBoost** (T035–T037) — train_ml on Z-space (parallel with 4B)
+7. **Phase 4B** (T114–T120) — train_dl shallow MLP on Z-space
+8. **Phase 4 Evaluate** (T046–T051) — Welch's t-test; XGBoost vs MLP; register winner
+9. **Phase 4b** (T052–T060) → β tuned via Katib (US5 checkpoint)
+10. **Phase 5** → KFP orchestration (US6 checkpoint)
+11. **Phase 6** → constitutional gates asserted; full reproducibility confirmed
 
 ### Parallel Team Strategy
 
@@ -339,9 +428,13 @@ After Phase 2 extensions (T081–T085) complete:
 
 - TDD required for all `src/` code (constitution XV) — RED test MUST fail before GREEN implementation
 - `train_ml` and `train_dl` are sequential within their DVC stage (N seeds in a loop) but run in parallel in the DVC DAG
-- XGBoost on 32-dim Z vectors trains fast — 10 seeds should complete in < 10 minutes
-- Katib trials retrain the full VAE + encode + classifier per trial — each trial may take 5–15 min; plan for 25–75 min total tune stage
-- `val_macro_f1` (Katib fitness, Z_val) and `eout_macro_f1` (final test metric, Z_test) are different numbers from different splits — never conflate them
-- Z_val and Z_test MUST NOT be augmented under any circumstances (constitution III v3.1.0)
-- The `register` stage has no `outs` that DVC tracks (MLflow Model Registry is not a filesystem output) — `registry_receipt.json` is the only DVC-tracked output
+- Both XGBoost and MLP train on `Z_train_augmented` (VAE latent features, 8-dim) — same Z-space, different model families; Welch's t-test on eout_macro_f1
+- CTGAN augmentation operates on Fatal rows of `X_train.npy` only (training split); `X_val` and `X_test` MUST NOT be augmented (constitution III v3.3.0)
+- encode stage receives `X_train_augmented` from the augment stage — no LSA inside encode; augmentation is fully handled upstream
+- KL beta schedule: starts at 0.0, ramps linearly to `vae.beta_max` over `vae.warmup_epochs`, then held constant — prevents posterior collapse
+- Shallow MLP architecture (constitution IV): `Input(8) → Linear(64) → ReLU → Dropout(0.1) → Linear(3)`; cross-entropy loss with runtime-computed class weights
+- Katib trials retrain full VAE + encode + winner classifier per trial — each trial may take 5–15 min; plan for 25–75 min total tune stage
+- `val_macro_f1` (Katib fitness, Z_val) and `eout_macro_f1` (final test metric, Z_test) are different numbers — never conflate
+- Z_val and Z_test MUST NOT be augmented (constitution III v3.3.0)
+- The `register` stage has no `outs` that DVC tracks — `registry_receipt.json` is the only DVC-tracked output
 - After Katib writes `tune.best_params.beta` to `params.yaml`, DVC detects the change and invalidates `train_vae` and all downstream stages — a full re-run follows automatically

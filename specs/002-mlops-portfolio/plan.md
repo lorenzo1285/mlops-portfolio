@@ -8,14 +8,14 @@
 ## Summary
 
 Build a 10-stage ML pipeline on the CGR crash dataset demonstrating the full MLOps
-toolchain. The architectural foundation is a Denoising β-VAE that learns a compressed
-latent representation of crash records (unsupervised, no labels). Both classifiers —
-XGBoost and a PyTorch MLP — operate on 32-dimensional Z vectors produced by the frozen
-encoder, not on raw features. Latent-Space Augmentation (LSA) handles the extreme Fatal
-class imbalance by synthesising Z-space samples before any supervised training. A
-statistical A/B test (Welch's t-test, N=10 seeds each) compares the two classifiers on
-the same held-out Z_test set. Katib searches the β hyperparameter. Kubeflow Pipelines
-is the sole orchestrator.
+toolchain. The architectural foundation is a Denoising β-VAE with KL annealing that
+learns a compressed latent representation of crash records (unsupervised, no labels).
+Both classifiers — XGBoost and a shallow PyTorch MLP — operate on 8-dimensional Z
+vectors produced by the frozen encoder. CTGAN augmentation in a dedicated `augment`
+stage handles the extreme Fatal class imbalance by generating synthetic Fatal rows in
+X-space before encoding. A statistical A/B test (Welch's t-test, N=10 seeds each)
+compares the two classifiers on the same held-out Z_test set. Katib searches the β
+hyperparameter. Kubeflow Pipelines is the sole orchestrator.
 
 ---
 
@@ -53,7 +53,7 @@ seeds per classifier; 5 β values for Katib
 
 ## Constitution Check
 
-*Constitution v3.1.0 — checked 2026-04-26*
+*Constitution v3.3.0 — checked 2026-04-29*
 
 | Gate | Status | Detail |
 |---|---|---|
@@ -61,7 +61,7 @@ seeds per classifier; 5 β values for Katib
 | `samples_per_param_ratio ≥ 3.0` logged by featurize | **PASS** | MLP on Z(32): ~2,307 params; ratio ≈ 22.5 × — easily above 3.0 |
 | Preprocessing fit on train split only | **PASS** | `ColumnTransformer` fits on X_train; VAE uses all X (Principle II unsupervised exception) |
 | Test set never used during HPO search | **PASS** | Katib trials evaluate fitness on `Z_val` — spec `eout_macro_f1` in tune context means val; `Z_test` reserved for `evaluate` stage only |
-| Class imbalance strategy documented | **PASS** | Runtime-computed class weights + LSA on Z_train only (Principle III v3.1.0) |
+| Class imbalance strategy documented | **PASS** | Runtime-computed class weights + CTGAN augmentation on X_train only + encode → Z (Principle III v3.3.0) |
 | MLflow tracking present in plan | **PASS** | FR-004–FR-010; experiments: vae, ml, dl, tune |
 | Macro F1 > 0.45 AND fatal recall > 0.30 gates | **PASS** | FR-009, SC-005; Principle VI v3.1.0 |
 | DVC pipeline stages defined in `dvc.yaml` | **PASS** | FR-002: 10 stages with explicit deps/outs/params |
@@ -114,16 +114,19 @@ src/
 │   └── selector.py
 ├── train_vae/              # NEW stage
 │   ├── run.py
-│   └── vae_trainer.py      # DVAETrainer: encoder + decoder + ELBO loss + MLflow logging
-├── encode/                 # NEW stage
+│   └── vae_trainer.py      # DVAETrainer: encoder + decoder + ELBO loss + KL annealing + MLflow logging
+├── augment/                # NEW stage (parallel with train_vae)
 │   ├── run.py
-│   └── encoder.py          # LatentEncoder: freeze VAE encoder, produce Z splits, LSA augmentation
+│   └── augmenter.py        # CTGANAugmenter: fit TVAE on Fatal rows, generate synthetic X_train rows
+├── encode/                 # NEW stage (depends on train_vae + augment)
+│   ├── run.py
+│   └── encoder.py          # LatentEncoder: freeze VAE encoder, project X_train_augmented + X_val/test → Z splits
 ├── train_ml/
 │   ├── run.py              # update: XGBoost config
 │   └── trainer.py          # REWRITE: XGBoost multi-class on Z vectors (remove PyCaret)
 ├── train_dl/
 │   ├── run.py              # update: Z-vector input, 3-class output
-│   ├── trainer.py          # REWRITE: MLP on Z(32→64→3); remove EvoTorch NAS
+│   ├── trainer.py          # REWRITE: shallow MLP on Z(8→64→3); cross-entropy + class weights
 │   └── pyfunc.py           # update: 3-class MLP wrapper
 ├── evaluate/
 │   ├── run.py
@@ -153,9 +156,9 @@ tests/
 ├── test_validate.py         # ✅ complete
 ├── test_featurize.py        # update: 3-class target
 ├── test_train_vae.py        # NEW: ELBO convergence, encoder output shape
-├── test_encode.py           # NEW: Z shape, LSA augmentation ratio
+├── test_encode.py           # REVISED: Z shape from X_train_augmented; no LSA assertions
 ├── test_train_ml.py         # REWRITE: XGBoost multi-class on Z
-├── test_train_dl.py         # REWRITE: MLP on Z(32), 3-class output
+├── test_train_dl.py         # REWRITE: shallow MLP on Z(8), 3-class output, class weights
 ├── test_evaluate.py         # update: multi-class gates
 ├── test_tune.py             # update: β search
 └── test_register.py
@@ -164,21 +167,26 @@ tests/
 **params.yaml additions/changes**:
 
 ```yaml
-# NEW sections
+# NEW / UPDATED sections
 vae:
   encoder_dims: [256, 128, 64]
-  latent_dim: 32              # fixed — not tunable
-  beta: 1.0                   # runtime default; overwritten by tune.best_params.beta
+  latent_dim: 8               # fixed — not tunable
+  beta_start: 0.0             # KL annealing start (prevents posterior collapse)
+  beta_max: 0.5               # KL annealing ceiling; tuned by Katib
+  warmup_epochs: 15           # epochs to ramp beta_start → beta_max
   dropout_p: 0.15             # neural inpainting corruption rate
   epochs: 200
   patience: 20
   batch_size: 512
-  lr: 0.001
+  lr: 0.0005
   experiment_name: crash-severity-vae
 
-encode:
-  lsa_target_ratio: 0.05      # augment fatal class to 5% of Z_train
-  min_fatal_samples: 10       # halt if fewer real fatal samples than this
+augment:
+  tvae_epochs: 500            # CTGAN/TVAE epochs to fit Fatal distribution
+  target_fatal_ratio: 0.05   # augment Fatal class to 5% of X_train_augmented
+  random_state: 42
+
+# encode section removed — no LSA parameters needed; encode is a pure projection pass
 
 # MODIFIED sections
 model:
@@ -188,14 +196,14 @@ model:
   # remove: class_weight_neg, class_weight_pos (now computed at runtime from train split)
 
 dl:
-  # remove: hidden_1: 128, hidden_2: 64 (MLP now fixed Linear(32,64)→ReLU→Dropout→Linear(64,3))
-  input_dim: 32               # Z-vector dimensionality (matches vae.latent_dim)
+  input_dim: 8                # Z-vector dimensionality (matches vae.latent_dim)
   hidden_dim: 64
-  dropout: 0.3
+  dropout_p: 0.1
   epochs: 100
   patience: 10
   batch_size: 256
   lr: 0.001
+  experiment_name: crash-severity-dl
 
 mlflow:
   experiment_name_ml: crash-severity-ml
