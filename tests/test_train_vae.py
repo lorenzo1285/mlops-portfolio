@@ -18,11 +18,13 @@ class TestTrainVAE:
     def minimal_vae_config(self):
         """Minimal VAE config for fast testing."""
         return VAEConfig(
-            encoder_dims=[16, 8],  # Small dims for fast testing
+            encoder_dims=[16, 8],
             latent_dim=4,
-            beta=1.0,
+            beta_start=0.0,
+            beta_max=0.5,
+            warmup_epochs=2,
             dropout_p=0.15,
-            epochs=5,  # Few epochs for fast testing
+            epochs=5,
             patience=3,
             batch_size=32,
             lr=0.001,
@@ -44,19 +46,26 @@ class TestTrainVAE:
     @pytest.fixture
     def dummy_X_all(self):
         """Create a small dummy dataset for testing."""
-        # 100 samples, 10 features
         np.random.seed(42)
         return np.random.randn(100, 10).astype(np.float32)
 
+    @pytest.fixture
+    def dummy_y_all(self):
+        """Class labels matching dummy_X_all — 3 classes, Fatal underrepresented."""
+        y = np.zeros(100, dtype=np.int64)
+        y[70:85] = 1   # 15 Injury
+        y[85:]   = 2   # 15 Fatal (overrepresented here for test stability)
+        return y
+
     def test_vae_trainer_returns_train_result(
-        self, minimal_vae_config, mlflow_config, dummy_X_all, tmp_path
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all, tmp_path
     ):
         """Given dummy X_all, DVAETrainer.train() returns VAETrainResult with best_epoch >= 1."""
         # Arrange: Create trainer
         trainer = DVAETrainer(minimal_vae_config, mlflow_config)
         
         # Act: Train VAE
-        result = trainer.train(dummy_X_all)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
         
         # Assert: Returns VAETrainResult
         assert isinstance(result, VAETrainResult), \
@@ -67,7 +76,7 @@ class TestTrainVAE:
             "final_elbo should be a float value"
 
     def test_vae_creates_encoder_decoder_checkpoints(
-        self, minimal_vae_config, mlflow_config, dummy_X_all, tmp_path
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all, tmp_path
     ):
         """Encoder and decoder .pth files are created at the configured paths."""
         # Arrange: Configure paths
@@ -78,7 +87,7 @@ class TestTrainVAE:
         
         # Act: Train VAE (need to modify trainer to accept output paths)
         # For now, trainer will use default paths - we'll check those exist
-        result = trainer.train(dummy_X_all)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
         
         # Assert: Checkpoint files exist
         assert Path(result.encoder_path).exists(), \
@@ -87,7 +96,7 @@ class TestTrainVAE:
             f"Decoder checkpoint not found at {result.decoder_path}"
 
     def test_vae_logs_to_mlflow(
-        self, minimal_vae_config, mlflow_config, dummy_X_all
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
     ):
         """VAE training logs metrics to MLflow experiment."""
         # Arrange: Set tracking URI
@@ -104,7 +113,7 @@ class TestTrainVAE:
         trainer = DVAETrainer(minimal_vae_config, mlflow_config)
         
         # Act: Train VAE
-        result = trainer.train(dummy_X_all)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
         
         # Assert: New run exists in MLflow
         experiment = mlflow.get_experiment_by_name(mlflow_config.experiment_name_vae)
@@ -122,7 +131,7 @@ class TestTrainVAE:
             "vae_elbo metric not logged"
 
     def test_vae_logs_elbo_at_multiple_steps(
-        self, minimal_vae_config, mlflow_config, dummy_X_all
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
     ):
         """VAE logs vae_elbo at step=0 and step=best_epoch."""
         # Arrange
@@ -130,7 +139,7 @@ class TestTrainVAE:
         trainer = DVAETrainer(minimal_vae_config, mlflow_config)
         
         # Act
-        result = trainer.train(dummy_X_all)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
         
         # Assert: Metrics logged at multiple epochs
         client = mlflow.tracking.MlflowClient()
@@ -146,14 +155,14 @@ class TestTrainVAE:
             f"vae_elbo not logged at step={result.best_epoch}"
 
     def test_encoder_output_shape_matches_latent_dim(
-        self, minimal_vae_config, mlflow_config, dummy_X_all, tmp_path
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all, tmp_path
     ):
         """Encoder produces output with shape (n_samples, latent_dim)."""
         # Arrange
         trainer = DVAETrainer(minimal_vae_config, mlflow_config)
         
         # Act: Train and get encoder
-        result = trainer.train(dummy_X_all)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
         
         # Load encoder and test forward pass
         encoder_checkpoint = torch.load(result.encoder_path, weights_only=False)
@@ -172,7 +181,7 @@ class TestTrainVAE:
             "Encoder checkpoint should contain model information"
 
     def test_vae_logs_reconstruction_and_kl_losses(
-        self, minimal_vae_config, mlflow_config, dummy_X_all
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
     ):
         """VAE logs vae_reconstruction_loss and vae_kl_loss per epoch."""
         # Arrange
@@ -180,7 +189,7 @@ class TestTrainVAE:
         trainer = DVAETrainer(minimal_vae_config, mlflow_config)
         
         # Act
-        result = trainer.train(dummy_X_all)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
         
         # Assert: Both loss components logged
         client = mlflow.tracking.MlflowClient()
@@ -191,3 +200,32 @@ class TestTrainVAE:
             "vae_reconstruction_loss not logged"
         assert len(kl_history) >= 1, \
             "vae_kl_loss not logged"
+
+    def test_weighted_sampler_logged_when_y_all_provided(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """When y_all is passed, MLflow run records weighted_sampler=True and n_fatal_train > 0."""
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+
+        run = mlflow.get_run(result.run_id)
+        params = run.data.params
+        assert params.get("weighted_sampler") == "True", \
+            "weighted_sampler param not logged as True"
+        assert int(params.get("n_fatal_train", 0)) > 0, \
+            "n_fatal_train not logged or is 0"
+
+    def test_train_without_y_all_still_works(
+        self, minimal_vae_config, mlflow_config, dummy_X_all
+    ):
+        """y_all is optional — train() without it uses shuffle=True and logs weighted_sampler=False."""
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+
+        result = trainer.train(dummy_X_all)
+
+        run = mlflow.get_run(result.run_id)
+        assert run.data.params.get("weighted_sampler") == "False", \
+            "weighted_sampler should be False when y_all not provided"

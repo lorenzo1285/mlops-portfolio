@@ -233,7 +233,7 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 - **III** At most three complementary imbalance mechanisms: (1) runtime-computed class weights, (2) CTGAN augmentation on X_train Fatal rows in dedicated `augment` DVC stage, (3) KL annealing to prevent posterior collapse in VAE. X_val/X_test NEVER augmented. Raw SMOTE/ADASYN/interpolation prohibited.
 - **IV** Sample complexity gate — `featurize` computes `N_train / n_params` and halts if ratio < 3.0
 - **V** MLflow mandatory metrics: `ein_macro_f1`, `eout_macro_f1`, `generalisation_gap`, `eout_fatal_recall`
-- **VI** Macro F1 primary metric; 3-class gates: F1 > 0.45, fatal recall > 0.30
+- **VI** Macro F1 primary metric; 3-class gates: F1 > 0.35, fatal recall > 0.50 (PDO sacrifice accepted — Fatal misclassification cost far exceeds PDO misclassification cost)
 - **VII** DVC for all data and model versioning
 - **VIII** Great Expectations validation before any training stage
 - **XII** `UBIQUITOUS_LANGUAGE.md` maintained; all terms canonical

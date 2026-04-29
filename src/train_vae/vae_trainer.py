@@ -8,9 +8,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, WeightedRandomSampler
 
 from src.config import MLflowConfig, VAEConfig
+from src.metrics import compute_class_weights
 
 
 @dataclass
@@ -173,11 +174,19 @@ class DVAETrainer:
         self._mlflow_config = mlflow_config
         self._run_name = run_name
 
-    def train(self, X_all: np.ndarray, output_dir: Path | None = None) -> VAETrainResult:
+    def train(
+        self,
+        X_all: np.ndarray,
+        y_all: np.ndarray | None = None,
+        output_dir: Path | None = None,
+    ) -> VAETrainResult:
         """Train VAE on full dataset with early stopping.
 
         Args:
-            X_all: Combined training/val/test data (unsupervised)
+            X_all: Combined augmented-train/val/test data (unsupervised).
+            y_all: Class labels for X_all — used only to build a WeightedRandomSampler
+                   so Fatal rows get proportional gradient share. Reconstruction target
+                   is always clean X (no label leakage).
             output_dir: Directory for encoder/decoder checkpoints. Defaults to Path("models").
 
         Returns:
@@ -201,13 +210,16 @@ class DVAETrainer:
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
         X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
 
-        # Create data loaders
+        # Create data loaders — weighted sampler when y_all provided
         train_dataset = TensorDataset(X_train_tensor)
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=self._vae_config.batch_size,
-            shuffle=True,
-        )
+        if y_all is not None:
+            y_train_vae = y_all[:n_train]
+            class_w = compute_class_weights(y_train_vae, n_classes=3)
+            sample_w = torch.DoubleTensor(class_w[y_train_vae.astype(int)])
+            sampler = WeightedRandomSampler(sample_w, num_samples=len(sample_w), replacement=True)
+            train_loader = DataLoader(train_dataset, batch_size=self._vae_config.batch_size, sampler=sampler)
+        else:
+            train_loader = DataLoader(train_dataset, batch_size=self._vae_config.batch_size, shuffle=True)
 
         val_dataset = TensorDataset(X_val_tensor)
         val_loader = DataLoader(
@@ -252,6 +264,9 @@ class DVAETrainer:
                 "batch_size": self._vae_config.batch_size,
                 "lr": self._vae_config.lr,
                 "input_dim": input_dim,
+                "n_train_samples": n_train,
+                "weighted_sampler": y_all is not None,
+                "n_fatal_train": int((y_all[:n_train] == 2).sum()) if y_all is not None else 0,
             })
             
             # Training loop

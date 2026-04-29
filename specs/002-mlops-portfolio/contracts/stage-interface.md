@@ -156,15 +156,17 @@ synthetic row injection inside this stage. Augmentation was handled upstream by 
 | `ENCODER_PATH` | `models/vae_encoder.pth` | Frozen encoder weights |
 | `X_TRAIN_AUG_PATH` | `data/processed/X_train_augmented.npy` | CTGAN-augmented training features |
 | `Y_TRAIN_AUG_PATH` | `data/processed/y_train_augmented.npy` | Augmented training labels |
-| `VAL_X_PATH` | `data/processed/X_val.npy` | Validation features (original) |
-| `TEST_X_PATH` | `data/processed/X_test.npy` | Test features (original) |
+| `X_VAL_PATH` | `data/processed/X_val.npy` | Validation features (original) |
+| `X_TEST_PATH` | `data/processed/X_test.npy` | Test features (original) |
 | `OUTPUT_DIR` | `data/processed/` | Dir for Z arrays |
-| `PARAMS_PATH` | `params.yaml` | Reads `vae.latent_dim` |
+| `MLFLOW_TRACKING_URI` | `mlruns/` | MLflow tracking store |
+| `PARAMS_PATH` | `params.yaml` | Reads `vae.latent_dim`, `encode.random_state` |
 
 **Outputs**:
 - `OUTPUT_DIR/Z_train_augmented.npy` (shape: N_augmented × latent_dim)
 - `OUTPUT_DIR/Z_val.npy` (shape: N_val × latent_dim)
 - `OUTPUT_DIR/Z_test.npy` (shape: N_test × latent_dim)
+- `OUTPUT_DIR/y_train_augmented.npy` (pass-through from input)
 
 **Exit codes**: `0` = success, `1` = encoder load failure or shape mismatch
 

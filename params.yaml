@@ -64,8 +64,8 @@ data:
 model:
   n_classes: 3
   n_select: 3
-  macro_f1_threshold: 0.45
-  fatal_recall_threshold: 0.30
+  macro_f1_threshold: 0.35
+  fatal_recall_threshold: 0.50
 
 dl:
   input_dim: 8

@@ -64,13 +64,16 @@ stages:
       - src/train_vae/run.py
       - src/train_vae/vae_trainer.py
       - src/config.py
-      - data/processed/X_train.npy
+      - data/processed/X_train_augmented.npy
+      - data/processed/y_train_augmented.npy
       - data/processed/X_val.npy
       - data/processed/X_test.npy
     params:
       - vae.encoder_dims
       - vae.latent_dim
-      - vae.beta
+      - vae.beta_start
+      - vae.beta_max
+      - vae.warmup_epochs
       - vae.dropout_p
       - vae.epochs
       - vae.patience
@@ -82,6 +85,23 @@ stages:
       - models/vae_encoder.pth
       - models/vae_decoder.pth
 
+  augment:
+    cmd: python -m src.augment.run
+    deps:
+      - src/augment/run.py
+      - src/augment/augmenter.py
+      - src/config.py
+      - data/processed/X_train.npy
+      - data/processed/y_train.npy
+    params:
+      - augment.tvae_epochs
+      - augment.target_fatal_ratio
+      - augment.random_state
+      - mlflow.tracking_uri
+    outs:
+      - data/processed/X_train_augmented.npy
+      - data/processed/y_train_augmented.npy
+
   encode:
     cmd: python -m src.encode.run
     deps:
@@ -89,20 +109,16 @@ stages:
       - src/encode/encoder.py
       - src/config.py
       - models/vae_encoder.pth
-      - data/processed/X_train.npy
-      - data/processed/y_train.npy
+      - data/processed/X_train_augmented.npy
+      - data/processed/y_train_augmented.npy
       - data/processed/X_val.npy
       - data/processed/X_test.npy
     params:
       - vae.latent_dim
-      - encode.lsa_target_ratio
-      - encode.min_fatal_samples
-      - encode.random_state
     outs:
       - data/processed/Z_train_augmented.npy
       - data/processed/Z_val.npy
       - data/processed/Z_test.npy
-      - data/processed/y_train_augmented.npy
 
   train_ml:
     cmd: python -m src.train_ml.run

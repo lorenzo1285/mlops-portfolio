@@ -61,6 +61,11 @@ class VAEConfig:
     batch_size: int
     lr: float
     experiment_name: str
+    
+    @property
+    def beta(self) -> float:
+        """Backward compatibility: return beta_max for old code."""
+        return self.beta_max
 
 
 @dataclass
