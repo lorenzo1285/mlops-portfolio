@@ -14,6 +14,7 @@ class FeaturesConfig:
     target_column: str = "CRASHSEVER"
     sentinel_columns: list[str] = field(default_factory=list)
     ordinal_columns: dict[str, list[str]] = field(default_factory=dict)
+    cyclical_columns: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -39,18 +40,21 @@ class ModelConfig:
 class DLConfig:
     input_dim: int
     hidden_dim: int
+    dropout_p: float
     epochs: int
     patience: int
     batch_size: int
     lr: float
-    dropout: float
+    experiment_name: str
 
 
 @dataclass
 class VAEConfig:
     encoder_dims: list[int]
     latent_dim: int
-    beta: float
+    beta_start: float
+    beta_max: float
+    warmup_epochs: int
     dropout_p: float
     epochs: int
     patience: int
@@ -61,9 +65,14 @@ class VAEConfig:
 
 @dataclass
 class EncodeConfig:
-    lsa_target_ratio: float
-    min_fatal_samples: int
     random_state: int = 42
+
+
+@dataclass
+class AugmentConfig:
+    tvae_epochs: int
+    target_fatal_ratio: float
+    random_state: int
 
 
 @dataclass
@@ -119,6 +128,7 @@ class ProjectConfig:
     dl: DLConfig
     vae: VAEConfig
     encode: EncodeConfig
+    augment: AugmentConfig
     mlflow: MLflowConfig
     ab_test: ABTestConfig
     feature_selection: FeatureSelectionConfig
@@ -131,7 +141,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
 
-    required = {"features", "data", "model", "dl", "vae", "encode", "mlflow", "ab_test", "great_expectations"}
+    required = {"features", "data", "model", "dl", "vae", "augment", "mlflow", "ab_test", "great_expectations"}
     missing = required - raw.keys()
     if missing:
         raise KeyError(f"params.yaml missing required sections: {missing}")
@@ -142,7 +152,8 @@ def load_config(path: str | None = None) -> ProjectConfig:
         model=ModelConfig(**raw["model"]),
         dl=DLConfig(**raw["dl"]),
         vae=VAEConfig(**raw["vae"]),
-        encode=EncodeConfig(**raw["encode"]),
+        encode=EncodeConfig(**raw.get("encode", {"random_state": 42})),
+        augment=AugmentConfig(**raw["augment"]),
         mlflow=MLflowConfig(**raw["mlflow"]),
         feature_selection=FeatureSelectionConfig(
             **raw.get("feature_selection", {})

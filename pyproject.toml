@@ -24,6 +24,7 @@ dependencies = [
     "scipy>=1.11",
     "pyyaml",
     "joblib",
+    "ctgan>=0.9.1",
 ]
 
 [dependency-groups]

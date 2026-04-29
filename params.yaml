@@ -27,7 +27,6 @@ features:
     - X
     - Y
   numeric_columns:
-    - HOUR
     - YEAR
     - SPEEDLIMIT
     - RDNUMLANES
@@ -45,19 +44,9 @@ features:
       - Friday
       - Saturday
       - Sunday
-    MONTH:
-      - January
-      - February
-      - March
-      - April
-      - May
-      - June
-      - July
-      - August
-      - September
-      - October
-      - November
-      - December
+  cyclical_columns:
+    HOUR: 24
+    MONTH: 12
   target_column: CRASHSEVER
   sentinel_columns:
     - DRIVER1AGE
@@ -79,28 +68,31 @@ model:
   fatal_recall_threshold: 0.30
 
 dl:
-  input_dim: 32
+  input_dim: 8
   hidden_dim: 64
+  dropout_p: 0.1
   epochs: 100
   patience: 10
   batch_size: 256
   lr: 0.001
-  dropout: 0.3
+  experiment_name: crash-severity-dl
 
 vae:
   encoder_dims: [256, 128, 64]
-  latent_dim: 32
-  beta: 1.0
+  latent_dim: 8
+  beta_start: 0.0
+  beta_max: 0.5
+  warmup_epochs: 15
   dropout_p: 0.15
   epochs: 200
   patience: 20
   batch_size: 512
-  lr: 0.001
+  lr: 0.0005
   experiment_name: crash-severity-vae
 
-encode:
-  lsa_target_ratio: 0.05
-  min_fatal_samples: 10
+augment:
+  tvae_epochs: 500
+  target_fatal_ratio: 0.05
   random_state: 42
 
 mlflow:
