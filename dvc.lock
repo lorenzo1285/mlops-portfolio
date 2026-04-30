@@ -452,16 +452,16 @@ stages:
     deps:
     - path: data/processed/X_test.npy
       hash: md5
-      md5: 80d7b6e6a6972bc6923b570ef8c0060e
-      size: 2318704
+      md5: 9476548c35e28b8f36128ac03f6eac65
+      size: 2497056
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 31ba8c289c4671572ff66f674290c329
-      size: 11372736
+      md5: f4715bb79f1a4c8c6b3c027186309509
+      size: 12247552
     - path: data/processed/X_val.npy
       hash: md5
-      md5: ff667cf63b3c9646817de2e13c961d5a
-      size: 2318704
+      md5: f075ea202309b568f10e5ff9203a31bc
+      size: 2497056
     - path: data/processed/y_train_augmented.npy
       hash: md5
       md5: fd824cb0da033261bdc92cd7a8c05d89
@@ -498,35 +498,35 @@ stages:
     outs:
     - path: models/vae_decoder.pth
       hash: md5
-      md5: 367f7f47a2788ca087e72883d6474fcc
-      size: 203401
+      md5: d0ff96c91dc081a1d1bc82c4d3170a29
+      size: 205449
     - path: models/vae_encoder.pth
       hash: md5
-      md5: 95952670a49666a0ea50e85eb4bae86f
-      size: 205963
+      md5: 87f48ad9ff47bbea7b57ff0a74ed86bd
+      size: 208011
   encode:
     cmd: python -m src.encode.run
     deps:
     - path: data/processed/X_test.npy
       hash: md5
-      md5: 80d7b6e6a6972bc6923b570ef8c0060e
-      size: 2318704
+      md5: 9476548c35e28b8f36128ac03f6eac65
+      size: 2497056
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 31ba8c289c4671572ff66f674290c329
-      size: 11372736
+      md5: f4715bb79f1a4c8c6b3c027186309509
+      size: 12247552
     - path: data/processed/X_val.npy
       hash: md5
-      md5: ff667cf63b3c9646817de2e13c961d5a
-      size: 2318704
+      md5: f075ea202309b568f10e5ff9203a31bc
+      size: 2497056
     - path: data/processed/y_train_augmented.npy
       hash: md5
       md5: fd824cb0da033261bdc92cd7a8c05d89
       size: 437536
     - path: models/vae_encoder.pth
       hash: md5
-      md5: 95952670a49666a0ea50e85eb4bae86f
-      size: 205963
+      md5: 87f48ad9ff47bbea7b57ff0a74ed86bd
+      size: 208011
     - path: src/config.py
       hash: md5
       md5: 0830753aeb4f6231382d5f37a8dc312c
@@ -545,23 +545,23 @@ stages:
     outs:
     - path: data/processed/Z_test.npy
       hash: md5
-      md5: 7168ab32b96c16498336740df01f6c99
+      md5: 1b8c2177ba1d1115c6c8d5e72ffa7616
       size: 356832
     - path: data/processed/Z_train_augmented.npy
       hash: md5
-      md5: ed30732e116357c7ff691cb65353f11b
+      md5: b6d19086012f5451b077e7a0dc6ad3d3
       size: 1749760
     - path: data/processed/Z_val.npy
       hash: md5
-      md5: 03e4e5323136fd927801908626351f49
+      md5: d67b6032bf715625c427212524b6754f
       size: 356832
   augment:
     cmd: python -m src.augment.run
     deps:
     - path: data/processed/X_train.npy
       hash: md5
-      md5: 2ed4d91edd95ab2c3e7ea0f1e2350e06
-      size: 10819248
+      md5: 5bd56a7354e4a7fca0467f251ec99030
+      size: 11651488
     - path: data/processed/y_train.npy
       hash: md5
       md5: 7a7da204ddc9d5662784b4099af577b3
@@ -587,8 +587,8 @@ stages:
     outs:
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 31ba8c289c4671572ff66f674290c329
-      size: 11372736
+      md5: f4715bb79f1a4c8c6b3c027186309509
+      size: 12247552
     - path: data/processed/y_train_augmented.npy
       hash: md5
       md5: fd824cb0da033261bdc92cd7a8c05d89
