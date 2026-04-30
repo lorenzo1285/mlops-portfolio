@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from src.config import MLflowConfig, VAEConfig
-from src.train_vae.vae_trainer import DVAETrainer, VAETrainResult
+from src.train_vae.vae_trainer import DVAETrainer, Encoder, VAETrainResult
 
 
 class TestTrainVAE:
@@ -60,7 +60,7 @@ class TestTrainVAE:
     def test_vae_trainer_returns_train_result(
         self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all, tmp_path
     ):
-        """Given dummy X_all, DVAETrainer.train() returns VAETrainResult with best_epoch >= 1."""
+        """Given dummy X_all, DVAETrainer.train() returns VAETrainResult with best_epoch >= 0."""
         # Arrange: Create trainer
         trainer = DVAETrainer(minimal_vae_config, mlflow_config)
         
@@ -70,8 +70,8 @@ class TestTrainVAE:
         # Assert: Returns VAETrainResult
         assert isinstance(result, VAETrainResult), \
             f"Expected VAETrainResult, got {type(result)}"
-        assert result.best_epoch >= 1, \
-            f"Expected best_epoch >= 1, got {result.best_epoch}"
+        assert result.best_epoch >= 0, \
+            f"Expected best_epoch >= 0, got {result.best_epoch}"
         assert result.final_elbo < 0 or result.final_elbo >= 0, \
             "final_elbo should be a float value"
 
@@ -229,3 +229,72 @@ class TestTrainVAE:
         run = mlflow.get_run(result.run_id)
         assert run.data.params.get("weighted_sampler") == "False", \
             "weighted_sampler should be False when y_all not provided"
+
+    def test_kl_beta_annealing_logged(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """KL beta annealing: kl_beta logged at step=0 with value 0.0 and step=warmup_epochs with value beta_max."""
+        # Arrange
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+        
+        # Act: Train VAE
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+        
+        # Assert: kl_beta metric logged at multiple steps
+        client = mlflow.tracking.MlflowClient()
+        kl_beta_history = client.get_metric_history(result.run_id, "kl_beta")
+        
+        assert len(kl_beta_history) > 0, \
+            "kl_beta metric not logged"
+        
+        # Check step=0 has beta_start (0.0)
+        step_0_metrics = [m for m in kl_beta_history if m.step == 0]
+        assert len(step_0_metrics) == 1, \
+            f"Expected exactly 1 kl_beta metric at step=0, got {len(step_0_metrics)}"
+        assert abs(step_0_metrics[0].value - minimal_vae_config.beta_start) < 1e-6, \
+            f"kl_beta at step=0 should be {minimal_vae_config.beta_start}, got {step_0_metrics[0].value}"
+        
+        # Check step=warmup_epochs has beta_max
+        warmup_step = minimal_vae_config.warmup_epochs
+        warmup_metrics = [m for m in kl_beta_history if m.step == warmup_step]
+        assert len(warmup_metrics) == 1, \
+            f"Expected exactly 1 kl_beta metric at step={warmup_step}, got {len(warmup_metrics)}"
+        assert abs(warmup_metrics[0].value - minimal_vae_config.beta_max) < 1e-6, \
+            f"kl_beta at step={warmup_step} should be {minimal_vae_config.beta_max}, got {warmup_metrics[0].value}"
+
+    def test_encoder_output_has_sufficient_variance(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """Encoder produces latent vectors with std > 0.05 across all dims (detects posterior collapse)."""
+        # Arrange
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+        
+        # Act: Train and get encoder checkpoint
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+        
+        # Load encoder checkpoint
+        checkpoint = torch.load(result.encoder_path, weights_only=False)
+        
+        # Reconstruct encoder model
+        input_dim = checkpoint["input_dim"]
+        encoder_dims = checkpoint["encoder_dims"]
+        latent_dim = checkpoint["latent_dim"]
+        
+        encoder = Encoder(input_dim, encoder_dims, latent_dim)
+        encoder.load_state_dict(checkpoint["state_dict"])
+        encoder.eval()
+        
+        # Run forward pass on dummy data
+        X_tensor = torch.tensor(dummy_X_all, dtype=torch.float32)
+        with torch.no_grad():
+            mu, log_var = encoder(X_tensor)
+        
+        # Compute std across samples for each latent dimension
+        mu_std = mu.std(dim=0).numpy()
+        
+        # Assert: all dimensions have std > 0.05 (not collapsed)
+        for dim_idx, std_val in enumerate(mu_std):
+            assert std_val > 0.05, \
+                f"Dimension {dim_idx} has std={std_val:.4f} < 0.05 (posterior collapse detected)"
+

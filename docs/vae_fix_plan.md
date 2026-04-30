@@ -2,23 +2,21 @@
 
 **Triggered by**: `notebooks/vae_fatal_representation.ipynb` audit  
 **Date**: 2026-04-29  
-**Status**: Fix 1 complete ✅ | Fix 2 pending (T106/T107)
+**Status**: Both fixes implemented ✅ | Re-audit complete (2026-04-29)
 
 ## Task Map
 
 | Fix | Description | Tasks | Status |
 |-----|-------------|-------|--------|
 | Fix 1 | Weighted sampler + augmented VAE training data | **T121** | ✅ Done (2026-04-29) |
-| Fix 2 | KL annealing — ramp β from 0 → `beta_max` over `warmup_epochs` | **T106** (RED), **T107** (GREEN) | ⏳ Pending |
+| Fix 2 | KL annealing — ramp β from 0 → `beta_max` over `warmup_epochs` | **T106** (RED), **T107** (GREEN) | ✅ Done (2026-04-29) |
 
 **T121** is in `specs/002-mlops-portfolio/tasks.md` (Phase 3H section, after T107).  
 **T106/T107** are in `specs/002-mlops-portfolio/tasks.md` Phase 3H — VAE KL Annealing.
 
 ---
 
----
-
-## Audit Findings
+## Audit Findings — Initial (before fixes)
 
 | Metric | Value | Status |
 |---|---|---|
@@ -40,7 +38,7 @@ that 47% of PDO samples overlap it — leaving the downstream classifier with al
 5 of 8 latent dims are collapsed (σ² ≈ 1, prior) for PDO, Injury, and Fatal alike.  
 The effective latent space is ~3 dims. The VAE is underfitting.
 
-**Cause**: fixed β=1.0 during training is too strong a KL penalty at the start of training.  
+**Cause**: fixed β=0.5 during training is too strong a KL penalty at the start of training.  
 **Fix**: KL annealing — ramp β from 0 → beta_max over warmup_epochs (T106/T107, already planned).
 
 ### Layer 2 — Fatal-specific scarcity
@@ -72,13 +70,14 @@ Weight formula: `w_c = N / (n_classes × class_count_c)` — same as `compute_cl
 **Success criterion**: re-run audit notebook → Fatal-PDO separation > 1σ in ≥ 3 dims,  
 PDO overlap < 30%, KS-aligned dims ≥ 4/8.
 
-### Fix 2 — KL annealing (T106 RED + T107 GREEN — pending ⏳)
+### Fix 2 — KL annealing (T106 RED + T107 GREEN — DONE ✅)
 
-**What**: replace fixed β=1.0 with linear warmup: β_t = min(beta_max, beta_start + beta_max × t/warmup_epochs).  
+**What**: replace fixed β with linear warmup: β_t = min(beta_max, beta_start + beta_max × t/warmup_epochs).  
 Prevents posterior collapse in early epochs; opens up more active dims for all classes.
 
-**Expected outcome**: active dims increase from ~3 → 5+; collapsed dims drop from 5 → ≤ 2.  
-Combined with Fix 1 (Fatal gets more gradient), the newly-opened dims should encode Fatal structure.
+**Actual outcome**: active dims increased 3 → 5; collapsed dims dropped 5 → 0. Overall KL doubled
+(2.5 → 5+ nats) — the model is encoding significantly more information. Best epoch=4, early stopping
+at epoch 24 — model converged during the β warmup window.
 
 ---
 
@@ -88,40 +87,65 @@ Combined with Fix 1 (Fatal gets more gradient), the newly-opened dims should enc
 Fix 1 — T121 (weighted sampler + augmented data)  ←  DONE ✅
     │
     ▼
-Fix 2 — T106 RED → T107 GREEN (KL annealing)  ←  implement next
+Fix 2 — T106/T107 (KL annealing)  ←  DONE ✅
     │
     ▼
-dvc repro train_vae → encode
+dvc repro train_vae → encode  ←  DONE ✅ (2026-04-29)
     │
     ▼
-Re-run notebooks/vae_fatal_representation.ipynb  ←  verify both fixes
+Re-run vae_fatal_representation.ipynb audit  ←  DONE ✅ (see results below)
     │
     ▼
-Continue to T091–T095 (encode QA) if audit passes
+Continue to Phase 4A (augment T108–T113)  ←  NEXT
 ```
-
-Fix 1 before Fix 2 matters: KL annealing opens up more latent dims, but if Fatal still gets
-only 0.14% gradient share those dims will remain PDO-shaped. Both fixes are needed together
-to produce a meaningful Fatal cluster.
 
 ---
 
-## Success Criteria (re-run audit)
+## Results — Both Fixes Applied (2026-04-29)
 
-**Business priority**: Fatal recall > PDO precision. PDO overlap in the Fatal Z region is
-acceptable — it means some PDO samples get predicted as Fatal, which is the safe error direction.
+**MLflow run**: `36a3cd52` | Final ELBO: -2.56 (was -3.64) | Best epoch: 4 | Early stop: epoch 24
+**Data**: 76,970 samples; 54,676 train (aug); 2,766 Fatal (3.59%); weighted sampler active
 
-| Metric | Before Fix 1 | After Fix 1 | Target after KL annealing |
-|---|---|---|---|
-| Active dims (σ²<0.5) — Fatal | 3 / 8 | 2 / 8 | ≥ 4 / 8 |
-| Collapsed dims (σ²>0.9) — Fatal | 5 / 8 | 6 / 8 | ≤ 3 / 8 |
-| Fatal-PDO separation > 1σ | 1 / 8 dims | 1 / 8 dims | ≥ 2 / 8 dims |
-| PDO overlap in Fatal 2σ box | 47.06% | 55.99% | **not a hard gate** (PDO sacrifice accepted) |
-| KS-aligned dims real vs synth Fatal | 2 / 8 | **4 / 8** ✅ | ≥ 4 / 8 |
-| Downstream fatal recall (Z_test) | — | — | **> 0.50** (constitution gate) |
+| Metric | Before fixes | After Fix 1 only | After both fixes | Target | Status |
+|---|---|---|---|---|---|
+| Active dims (σ²<0.5) | 3/8 | 2/8 | **5/8** | ≥4/8 | ✅ |
+| Collapsed dims (σ²>0.9) | 5/8 | 6/8 | **0/8** | ≤3/8 | ✅ |
+| Fatal KL > PDO KL | ✅ Yes | — | ⚠️ No (5.04 vs 5.13) | Yes | ⚠️ |
+| Centroid ratio (synth/PDO) | 0.390 | — | **0.442** | <0.5 | ✅ |
+| KS-aligned dims (KS<0.10) | 2/8 | 4/8 | **4/8** | ≥4/8 | ✅ |
+| Fatal-PDO sep >1σ dims | 1/8 | 1/8 | **1/8** | ≥2/8 | ⚠️ |
+| PDO overlap in Fatal 2σ box | 47.06% | 55.99% | **47.88%** | not a hard gate | accepted |
+| Downstream fatal recall | — | — | — | >0.50 | pending |
 
-If the audit still shows ❌ after both fixes, next option is reducing `latent_dim` from 8 to match
-the effective rank of the space (currently ~3 active dims), then re-running.
+**Key finding**: KL annealing eliminated all collapsed dims (0/8 collapsed vs 5/8 before) and
+opened 2 additional active dims. Fatal-PDO overlap unchanged — the Fatal cluster remains
+diffuse, with only z3 providing meaningful separation (sep=1.83). This is accepted under the
+business rule (Fatal recall > PDO precision).
+
+**Seasonality note**: HOUR_sin/cos and MONTH_sin/cos as standalone features are weak Fatal
+separators — Fatal crashes are not cleanly seasonal. However, z3 (the one strong separator)
+likely captures their interaction with LIGHTING, WEATHER, and SPEEDLIMIT. The VAE encodes
+conjunctive feature patterns, not raw seasonality.
+
+---
+
+## Next Steps
+
+### Immediate — Phase 4A (T108–T113)
+Build the `augment` stage. This is the pipeline blocker for everything downstream:
+- `X_train_augmented.npy` already exists from a previous run but has no DVC-tracked production code
+- T094/T095 (encode pipeline verification) remain blocked until augment stage is built
+
+### Medium term — Katib β-HPO (T052–T060)
+The best epoch was 4 (during β warmup, β ≈ 0.13). This suggests `beta_max=0.5` with
+`warmup_epochs=15` may be suboptimal — the model prefers a lower effective β. Katib will
+search `beta_max` over [0.5, 1.0, 2.0, 4.0, 8.0] to find the optimal value. The annealing
+schedule (T106/T107) is already in place so all Katib trials benefit from warmup.
+
+### If fatal recall < 0.50 after Phase 4 evaluation
+Option: reduce `latent_dim` from 8 → 4 to match the effective rank of the active dims.
+This forces the encoder to concentrate all information into fewer, denser dims and may
+improve Fatal-PDO separation. Do not reduce before Phase 4 results are in.
 
 ---
 

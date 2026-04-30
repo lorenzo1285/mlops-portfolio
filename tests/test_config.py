@@ -40,22 +40,23 @@ class TestConfig:
     def test_config_has_ordinal_columns_dict(self):
         """Ordinal columns are loaded as dict with category lists."""
         config = load_config()
-        
+
         assert isinstance(config.features.ordinal_columns, dict)
         assert "DAYOFWEEK" in config.features.ordinal_columns
-        assert "MONTH" in config.features.ordinal_columns
-        
+        # MONTH moved to cyclical_columns (T102) — no longer ordinal
+        assert "MONTH" not in config.features.ordinal_columns
+
         # DAYOFWEEK should have 7 days starting with Monday
         days = config.features.ordinal_columns["DAYOFWEEK"]
         assert len(days) == 7
         assert days[0] == "Monday"
         assert days[6] == "Sunday"
-        
-        # MONTH should have 12 months starting with January
-        months = config.features.ordinal_columns["MONTH"]
-        assert len(months) == 12
-        assert months[0] == "January"
-        assert months[11] == "December"
+
+        # MONTH and HOUR are cyclical — encoded as sin/cos pairs
+        assert "MONTH" in config.features.cyclical_columns
+        assert "HOUR" in config.features.cyclical_columns
+        assert config.features.cyclical_columns["MONTH"] == 12
+        assert config.features.cyclical_columns["HOUR"] == 24
 
 
 class TestMetrics:

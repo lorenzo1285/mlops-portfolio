@@ -89,7 +89,6 @@ class DenoisingBetaVAE(nn.Module):
         input_dim: int,
         encoder_dims: list[int],
         latent_dim: int,
-        beta: float,
         dropout_p: float,
     ):
         super().__init__()
@@ -97,7 +96,6 @@ class DenoisingBetaVAE(nn.Module):
         # Decoder dims are encoder dims reversed
         decoder_dims = list(reversed(encoder_dims))
         self.decoder = Decoder(latent_dim, decoder_dims, input_dim)
-        self.beta = beta
         self.dropout_p = dropout_p
 
     def reparameterize(self, mu: torch.Tensor, log_var: torch.Tensor) -> torch.Tensor:
@@ -140,8 +138,12 @@ class DenoisingBetaVAE(nn.Module):
         x_clean: torch.Tensor,
         mu: torch.Tensor,
         log_var: torch.Tensor,
+        beta: float,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute ELBO loss: reconstruction + β * KL divergence.
+        
+        Args:
+            beta: KL divergence weight (annealed during training)
         
         Returns:
             total_loss: -ELBO (to minimize)
@@ -156,7 +158,7 @@ class DenoisingBetaVAE(nn.Module):
         kl_loss = kl_loss / x_clean.size(0)  # Normalize by batch size
         
         # Total ELBO loss
-        total_loss = recon_loss + self.beta * kl_loss
+        total_loss = recon_loss + beta * kl_loss
         
         return total_loss, recon_loss, kl_loss
 
@@ -233,7 +235,6 @@ class DVAETrainer:
             input_dim=input_dim,
             encoder_dims=self._vae_config.encoder_dims,
             latent_dim=self._vae_config.latent_dim,
-            beta=self._vae_config.beta,
             dropout_p=self._vae_config.dropout_p,
         )
 
@@ -271,6 +272,14 @@ class DVAETrainer:
             
             # Training loop
             for epoch in range(self._vae_config.epochs):
+                # Compute KL annealing beta for this epoch
+                beta_t = min(
+                    self._vae_config.beta_max,
+                    self._vae_config.beta_start + 
+                    (self._vae_config.beta_max - self._vae_config.beta_start) * 
+                    epoch / max(1, self._vae_config.warmup_epochs)
+                )
+                
                 # Train
                 model.train()
                 train_loss = 0
@@ -280,7 +289,7 @@ class DVAETrainer:
                 for (batch_x,) in train_loader:
                     optimizer.zero_grad()
                     x_hat, mu, log_var, _ = model(batch_x)
-                    loss, recon, kl = model.loss_function(x_hat, batch_x, mu, log_var)
+                    loss, recon, kl = model.loss_function(x_hat, batch_x, mu, log_var, beta_t)
                     loss.backward()
                     optimizer.step()
                     
@@ -301,7 +310,7 @@ class DVAETrainer:
                 with torch.no_grad():
                     for (batch_x,) in val_loader:
                         x_hat, mu, log_var, _ = model(batch_x)
-                        loss, recon, kl = model.loss_function(x_hat, batch_x, mu, log_var)
+                        loss, recon, kl = model.loss_function(x_hat, batch_x, mu, log_var, beta_t)
                         
                         val_loss += loss.item() * len(batch_x)
                         val_recon += recon.item() * len(batch_x)
@@ -317,6 +326,7 @@ class DVAETrainer:
                 mlflow.log_metric("vae_reconstruction_loss", val_recon, step=epoch)
                 mlflow.log_metric("vae_kl_loss", val_kl, step=epoch)
                 mlflow.log_metric("train_elbo", -train_loss, step=epoch)
+                mlflow.log_metric("kl_beta", beta_t, step=epoch)
                 
                 # Early stopping check
                 if val_loss < best_val_elbo:
