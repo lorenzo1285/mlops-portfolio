@@ -39,6 +39,7 @@ stages:
       - features.numeric_columns
       - features.target_column
       - features.ordinal_columns
+      - features.cyclical_columns
       - features.sentinel_columns
       - data.train_size
       - data.val_size

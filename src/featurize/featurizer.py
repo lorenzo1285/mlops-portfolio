@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
@@ -64,11 +65,13 @@ class Featurizer:
         sentinel_value: int | float | None = None,
         sentinel_cols: list[str] | None = None,
         ordinal_cols: dict[str, list[str]] | None = None,
+        cyclical_cols: dict[str, int] | None = None,
         feature_selector: FeatureSelector | None = None,
     ) -> None:
         self._feature_cols = feature_cols
         self._numeric_cols = numeric_cols
         self._ordinal_cols = dict(ordinal_cols) if ordinal_cols else {}
+        self._cyclical_cols = dict(cyclical_cols) if cyclical_cols else {}
         self._categorical_cols = [
             c for c in feature_cols
             if c not in numeric_cols and c not in self._ordinal_cols
@@ -125,10 +128,60 @@ class Featurizer:
             for col in self._sentinel_cols:
                 if col in df.columns:
                     df[col] = df[col].replace(self._sentinel_value, np.nan)
+        df = self._apply_cyclical(df)
         return df.dropna(subset=[self._target_col])
 
+    def _apply_cyclical(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply sin/cos encoding to cyclical columns (HOUR, MONTH).
+        
+        For each column in cyclical_columns dict:
+            - Create {col}_sin = sin(2π × value / period)
+            - Create {col}_cos = cos(2π × value / period)
+            - Drop original column
+        """
+        # Month name to integer mapping
+        _MONTH_MAP = {
+            "January": 1, "February": 2, "March": 3, "April": 4,
+            "May": 5, "June": 6, "July": 7, "August": 8,
+            "September": 9, "October": 10, "November": 11, "December": 12
+        }
+        
+        for col, period in self._cyclical_cols.items():
+            if col not in df.columns:
+                continue
+            
+            # Handle MONTH name to integer conversion
+            if col == "MONTH":
+                # Map month names to integers (1-12)
+                values = df[col].map(_MONTH_MAP)
+                # Convert to 0-11 for proper periodicity
+                values = values - 1
+            else:
+                # For HOUR and other numeric columns, just convert to numeric
+                values = pd.to_numeric(df[col], errors='coerce')
+            
+            # Compute sin and cos transformations
+            df[f"{col}_sin"] = values.apply(lambda x: math.sin(2 * math.pi * x / period) if pd.notna(x) else np.nan)
+            df[f"{col}_cos"] = values.apply(lambda x: math.cos(2 * math.pi * x / period) if pd.notna(x) else np.nan)
+            
+            # Drop original column
+            df = df.drop(columns=[col])
+        
+        return df
+
     def _separate_target(self, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
-        feature_cols = [c for c in self._feature_cols if c in df.columns]
+        # Build feature column list, excluding target and including cyclical replacements
+        feature_cols = []
+        for c in self._feature_cols:
+            if c in df.columns:
+                feature_cols.append(c)
+            elif c in self._cyclical_cols:
+                # If this was a cyclical column that was replaced, add the sin/cos pairs
+                if f"{c}_sin" in df.columns:
+                    feature_cols.append(f"{c}_sin")
+                if f"{c}_cos" in df.columns:
+                    feature_cols.append(f"{c}_cos")
+        
         X = df[feature_cols]
         y = df[self._target_col].map(_CRASHSEVER_MAP)
         return X, y
@@ -161,8 +214,20 @@ class Featurizer:
         X_test: pd.DataFrame,
     ) -> tuple[ColumnTransformer, np.ndarray, np.ndarray, np.ndarray]:
         cols = list(X_train.columns)
+        
+        # Separate numeric columns from cyclical sin/cos columns
         num = [c for c in self._numeric_cols if c in cols]
-        ord_names = [c for c in self._ordinal_cols if c in cols]
+        
+        # Collect cyclical sin/cos columns
+        cyc = []
+        for col in self._cyclical_cols:
+            if f"{col}_sin" in cols:
+                cyc.append(f"{col}_sin")
+            if f"{col}_cos" in cols:
+                cyc.append(f"{col}_cos")
+        
+        # Remove cyclical columns from ordinal list (MONTH was previously ordinal)
+        ord_names = [c for c in self._ordinal_cols if c in cols and c not in self._cyclical_cols]
         cat = [c for c in self._categorical_cols if c in cols]
 
         transformers = [
@@ -177,6 +242,16 @@ class Featurizer:
                 )),
             ]), cat),
         ]
+        
+        # Add cyclical transformer group - impute but do NOT scale (already bounded [-1, 1])
+        if cyc:
+            transformers.append((
+                "cyc",
+                Pipeline([
+                    ("imputer", SimpleImputer(strategy="mean")),
+                ]),
+                cyc,
+            ))
 
         if ord_names:
             # Explicit category order preserves semantic meaning (Mon=0…Sun=6).

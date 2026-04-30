@@ -39,6 +39,7 @@ def main() -> None:
         sentinel_value=config.data.sentinel_value,
         sentinel_cols=config.features.sentinel_columns,
         ordinal_cols=config.features.ordinal_columns,
+        cyclical_cols=config.features.cyclical_columns,
         feature_selector=selector,
     ).fit_transform(df)
 

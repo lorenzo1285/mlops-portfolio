@@ -345,12 +345,12 @@ stages:
       size: 4153
     - path: src/featurize/featurizer.py
       hash: md5
-      md5: a7415cc2ce88168cca7b089d76b0cbea
-      size: 7556
+      md5: d37417f354399de2f6a30dc48b216fdf
+      size: 10630
     - path: src/featurize/run.py
       hash: md5
-      md5: 0064dfc39edd7e43101b00ea126d2a05
-      size: 3372
+      md5: c8afe471af4772eab71304cb8a207d4d
+      size: 3428
     - path: src/featurize/selector.py
       hash: md5
       md5: 2296347a037d9ef29287df8542735ec1
@@ -392,6 +392,9 @@ stages:
         - NONTRAFFIC
         - X
         - Y
+        features.cyclical_columns:
+          HOUR: 24
+          MONTH: 12
         features.numeric_columns:
         - YEAR
         - SPEEDLIMIT
@@ -418,16 +421,16 @@ stages:
     outs:
     - path: data/processed/X_test.npy
       hash: md5
-      md5: 80d7b6e6a6972bc6923b570ef8c0060e
-      size: 2318704
+      md5: 9476548c35e28b8f36128ac03f6eac65
+      size: 2497056
     - path: data/processed/X_train.npy
       hash: md5
-      md5: 2ed4d91edd95ab2c3e7ea0f1e2350e06
-      size: 10819248
+      md5: 5bd56a7354e4a7fca0467f251ec99030
+      size: 11651488
     - path: data/processed/X_val.npy
       hash: md5
-      md5: ff667cf63b3c9646817de2e13c961d5a
-      size: 2318704
+      md5: f075ea202309b568f10e5ff9203a31bc
+      size: 2497056
     - path: data/processed/y_test.npy
       hash: md5
       md5: 84689db1cdce0e584f0f6c791f5a1fa4
@@ -442,8 +445,8 @@ stages:
       size: 89304
     - path: models/preprocessing_pipeline.joblib
       hash: md5
-      md5: 6439068f4c3acd06e30aac55efbae6d7
-      size: 12615
+      md5: 42b383b301af3e833c1974fec4d70d7e
+      size: 12551
   train_vae:
     cmd: python -m src.train_vae.run
     deps:
