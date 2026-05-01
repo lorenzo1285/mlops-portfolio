@@ -180,11 +180,8 @@ stages:
       - src/evaluate/run.py
       - src/evaluate/evaluator.py
       - src/config.py
-      - src/metrics.py
       - models/best_ml_model.pkl
       - models/mlp_model.pth
-      - data/processed/Z_test.npy
-      - data/processed/y_test.npy
     params:
       - model.n_classes
       - model.macro_f1_threshold

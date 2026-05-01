@@ -1,0 +1,14 @@
+{
+  "winner": "ml",
+  "p_value": 3.228259237968753e-17,
+  "cohens_d": 7.894145714721675,
+  "ml_mean_f1": 0.3636047850393989,
+  "dl_mean_f1": 0.325143913011791,
+  "ml_ci_low": 0.3636047850393989,
+  "ml_ci_high": 0.3636047850393989,
+  "dl_ci_low": 0.32237585348615144,
+  "dl_ci_high": 0.3279119725374306,
+  "ml_mean_fatal_recall": 0.25,
+  "dl_mean_fatal_recall": 0.55,
+  "gates_passed": false
+}
