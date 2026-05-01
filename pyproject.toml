@@ -20,6 +20,7 @@ dependencies = [
     "dvc>=3.0",
     "great-expectations>=1.0",
     "kfp>=2.0",
+    "kubernetes>=28.0",
     "scipy>=1.11",
     "pyyaml",
     "joblib",

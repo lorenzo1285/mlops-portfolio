@@ -1,0 +1,84 @@
+# Katib Hyperparameter Optimization Experiment
+# Searches optimal beta_max and latent_dim for VAE representation learning
+# Fitness: val_macro_f1 * (1.0 if val_fatal_recall >= 0.50 else 0.5)
+# Search space: beta_max=[0.05, 0.1, 0.2, 0.5, 1.0], latent_dim=[8, 16, 32]
+
+apiVersion: kubeflow.org/v1beta1
+kind: Experiment
+metadata:
+  name: vae-hyperparameter-tuning
+  namespace: default
+spec:
+  objective:
+    type: maximize
+    objectiveMetricName: val_fitness
+  algorithm:
+    algorithmName: bayesianoptimization
+  parallelTrialCount: 1
+  maxTrialCount: 15
+  maxFailedTrialCount: 5
+  parameters:
+    - name: beta_max
+      parameterType: categorical
+      feasibleSpace:
+        list:
+          - "0.05"
+          - "0.1"
+          - "0.2"
+          - "0.5"
+          - "1.0"
+    - name: latent_dim
+      parameterType: categorical
+      feasibleSpace:
+        list:
+          - "8"
+          - "16"
+          - "32"
+  trialTemplate:
+    primaryContainerName: trial
+    trialParameters:
+      - name: beta_max
+        description: KL divergence weight in VAE loss (lower retains discriminative structure)
+        reference: beta_max
+      - name: latent_dim
+        description: VAE latent space dimensionality (wider bottleneck preserves feature interactions)
+        reference: latent_dim
+    trialSpec:
+      restartPolicy: Never
+      containers:
+        - name: trial
+          image: mlops-portfolio:latest
+          imagePullPolicy: Never  # Use local Docker image
+          command:
+            - python
+            - -m
+            - src.tune.trial
+            - --beta_max=${trialParameters.beta_max}
+            - --latent_dim=${trialParameters.latent_dim}
+            - --winner={{winner}}
+          env:
+            - name: MLFLOW_TRACKING_URI
+              value: "file:///app/mlruns"
+            - name: PARAMS_PATH
+              value: "/app/params.yaml"
+          volumeMounts:
+            - name: workspace
+              mountPath: /app
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "2"
+            limits:
+              memory: "8Gi"
+              cpu: "4"
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: mlops-portfolio-pvc
+  metricsCollectorSpec:
+    source:
+      filter:
+        metricsFormat:
+          - "val_fitness=([\\d\\.]+)"
+    collector:
+      kind: StdOut

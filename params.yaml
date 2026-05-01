@@ -118,9 +118,9 @@ feature_selection:
   threshold: 0.95  # used by unsupervised methods (correlation, vif)
 
 tune:
-  experiment_name: vae-beta-search
-  max_trials: 5
-  namespace: kubeflow
+  experiment_name: vae-hyperparameter-tuning
+  max_trials: 15
+  namespace: default
 
 validation:
   columns:

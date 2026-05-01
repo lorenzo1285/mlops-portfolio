@@ -98,6 +98,14 @@ class ABTestConfig:
 
 
 @dataclass
+class TuneConfig:
+    experiment_name: str
+    max_trials: int
+    namespace: str
+    max_dl_trial_epochs: int = 50
+
+
+@dataclass
 class FeatureSelectionConfig:
     method: str = "none"  # one of: none, mutual_info, rfe, correlation, vif
     n_features: int = 10  # used by supervised methods
@@ -136,6 +144,7 @@ class ProjectConfig:
     augment: AugmentConfig
     mlflow: MLflowConfig
     ab_test: ABTestConfig
+    tune: TuneConfig
     feature_selection: FeatureSelectionConfig
     great_expectations: GreatExpectationsConfig
     validation: ValidationConfig = field(default_factory=ValidationConfig)
@@ -146,7 +155,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
 
-    required = {"features", "data", "model", "dl", "vae", "augment", "mlflow", "ab_test", "great_expectations"}
+    required = {"features", "data", "model", "dl", "vae", "augment", "mlflow", "ab_test", "tune", "great_expectations"}
     missing = required - raw.keys()
     if missing:
         raise KeyError(f"params.yaml missing required sections: {missing}")
@@ -164,6 +173,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
             **raw.get("feature_selection", {})
         ),
         ab_test=ABTestConfig(**raw["ab_test"]),
+        tune=TuneConfig(**raw["tune"]),
         great_expectations=GreatExpectationsConfig(**raw["great_expectations"]),
         validation=ValidationConfig(
             columns={

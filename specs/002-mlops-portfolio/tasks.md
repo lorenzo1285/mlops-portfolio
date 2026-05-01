@@ -24,7 +24,7 @@
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Current position**: end of Model Development → entering Operations (Phase 4C).
+**Current position**: Phase M4 complete — entering Operations (Phase O1 TDD, then O2 infrastructure, then O3 Katib).
 **Next loop trigger**: evaluate gates FAIL (expected) → Katib searches `beta_max` + `latent_dim` → pipeline re-runs with best params.
 
 ---
@@ -174,13 +174,13 @@
 
 Neither model passes both gates. Root cause: `latent_dim=8` + `beta_max=0.5` creates a Z-space bottleneck (XGBoost generalisation gap = 0.278). **Katib HPO (Phase O3) will search `beta_max` + `latent_dim` to fix this.** The pipeline loops back from Operations → Model Development automatically via `params.yaml` update + `dvc repro`.
 
-## 🔜 Phase M4: Model Testing + Validation — Evaluate
+## ✅ Phase M4: Model Testing + Validation — Evaluate
 
 **Goal**: Welch's t-test on macro F1 distributions; constitutional gates enforced; winner declared. Gates will FAIL with current params — this is expected and correct; it triggers the Katib loop.
 
-- [ ] T046 **RED** — Write `tests/test_evaluate.py`: mock MLflow runs (N=3 seeds each experiment); assert `evaluation_report.json` contains `winner`, `p_value`, `cohens_d`, `ml_mean_f1`, `dl_mean_f1`, `gates_passed`; assert `gates_passed=false` when winner mean F1 ≤ `macro_f1_threshold` or winner mean fatal recall ≤ `fatal_recall_threshold`; assert exit 1 when gates fail. Run — confirm FAIL.
-- [ ] T047 **GREEN** — Implement `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py`: query MLflow for `eout_macro_f1` and `eout_fatal_recall` from both experiments (N=10 seeds); Welch's t-test; Cohen's d; 95% CIs; tiebreak to `ml` if p ≥ alpha; assert constitutional gates; return `EvaluationResult`. Create `src/evaluate/run.py`: write `docs/evaluation_report.json` + `docs/ab_test_comparison.json`; exit 1 if gates fail.
-- [ ] T048 `dvc repro evaluate` — gates fail (expected); `evaluation_report.json` written; diagnosis confirmed.
+- [x] T046 **RED** — Write `tests/test_evaluate.py`: mock MLflow runs (N=3 seeds each experiment); assert `evaluation_report.json` contains `winner`, `p_value`, `cohens_d`, `ml_mean_f1`, `dl_mean_f1`, `gates_passed`; assert `gates_passed=false` when winner mean F1 ≤ `macro_f1_threshold` or winner mean fatal recall ≤ `fatal_recall_threshold`; assert exit 1 when gates fail. Run — confirm FAIL.
+- [x] T047 **GREEN** — Implement `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py`: query MLflow for `eout_macro_f1` and `eout_fatal_recall` from both experiments (N=10 seeds); Welch's t-test; Cohen's d; 95% CIs; tiebreak to `ml` if p ≥ alpha; assert constitutional gates; return `EvaluationResult`. Create `src/evaluate/run.py`: write `docs/evaluation_report.json` + `docs/ab_test_comparison.json`; exit 1 if gates fail.
+- [x] T048 `dvc repro evaluate` — gates fail (expected); `evaluation_report.json` written; diagnosis confirmed.
 
 > **Loop back trigger**: gates fail here → Katib (Phase O3) searches `beta_max` + `latent_dim` → writes winners to `params.yaml` → `dvc repro` re-runs `train_vae → encode → train_ml → train_dl → evaluate` → gates should PASS after Katib.
 
@@ -194,23 +194,24 @@ Neither model passes both gates. Root cause: `latent_dim=8` + `beta_max=0.5` cre
 
 ---
 
-## 🔜 Phase O1: ML Model Deployment — Register
+## ✅ Phase O1: ML Model Deployment — Register (TDD only)
 
-**Goal**: winning model registered in MLflow as `@champion`; inference artifact bundles VAE encoder + classifier so `model.predict(X_raw)` works end-to-end.
+**Goal**: register stage implemented and tested; `dvc repro register` deferred until gates pass (post-Katib T060).
 
-- [ ] T049 **RED** — Write `tests/test_register.py`: assert with `gates_passed=true` → exit 0, `@champion` alias set, `registry_receipt.json` written; assert with `gates_passed=false` → exit 1, no registry mutation. Run — confirm FAIL.
-- [ ] T050 **GREEN** — Implement `ModelRegistrar.register()` in `src/register/registrar.py`; create `src/register/run.py`. **Inference path**: registered `mlflow.pyfunc` bundles `vae_encoder.pth` + champion classifier — `model.predict(X_raw)` runs `LatentEncoder → classifier` internally.
-- [ ] T051 `dvc repro register` — `@champion` alias set; `mlflow.pyfunc.load_model("models:/crash-severity@champion")` loads; `model.predict(Z_test[:5])` returns shape `(5,)` with values in `{0, 1, 2}`.
+- [x] T049 **RED** — Write `tests/test_register.py`: assert with `gates_passed=true` → exit 0, `@champion` alias set, `registry_receipt.json` written; assert with `gates_passed=false` → exit 1, no registry mutation. Run — confirm FAIL.
+- [x] T050 **GREEN** — Implement `ModelRegistrar.register()` in `src/register/registrar.py`; create `src/register/run.py`. **Inference path**: registered `mlflow.pyfunc` bundles `vae_encoder.pth` + champion classifier — `model.predict(X_raw)` runs `LatentEncoder → classifier` internally.
+
+> T051 (`dvc repro register`) deferred to Phase O3 — requires `gates_passed=true` which only holds after the Katib loop rewrites `params.yaml` and `dvc repro` re-runs the pipeline.
 
 ## 🔜 Phase O2: CI/CD — Docker + Kubernetes Setup
 
 **Goal**: container image built; local Kubernetes cluster running; shared PVC mounted. Required before Katib trial pods can execute.
 
-- [ ] T066 Create `docker/Dockerfile`: `FROM python:3.12-slim`; install `uv`; `uv sync --frozen`; copy `src/`, `dvc.yaml`, `params.yaml`, `great_expectations/gx/`; `ENV PYTHONPATH=/app`. Do NOT copy `mlruns/`, `data/`, `models/` — these come from PVC mount.
-- [ ] T067 Build + smoke-test: `docker build -f docker/Dockerfile -t mlops-portfolio:latest .`; `docker run --rm -v $(pwd)/data:/app/data mlops-portfolio:latest python -m src.ingest.run` → exit 0.
-- [ ] T068 Enable Kubernetes in Docker Desktop; verify with `kubectl cluster-info`.
-- [ ] T069 Create `k8s/pvc.yaml`: hostPath PV + PVC mounting project root at `/app`; apply with `kubectl apply -f k8s/pvc.yaml`.
-- [ ] T070 Install KFP standalone + Katib operator; wait for pods ready; `kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8888:80`.
+- [x] T066 Create `docker/Dockerfile`: `FROM python:3.12-slim`; install `uv`; `uv sync --frozen`; copy `src/`, `dvc.yaml`, `params.yaml`, `great_expectations/gx/`; `ENV PYTHONPATH=/app`. Do NOT copy `mlruns/`, `data/`, `models/` — these come from PVC mount.
+- [x] T067 Build + smoke-test: `docker build -f docker/Dockerfile -t mlops-portfolio:latest .`; `docker run --rm -v $(pwd)/data:/app/data mlops-portfolio:latest python -m src.ingest.run` → exit 0.
+- [x] T068 Enable Kubernetes in Docker Desktop; verify with `kubectl cluster-info`.
+- [x] T069 Create `k8s/pvc.yaml`: hostPath PV + PVC mounting project root at `/app`; apply with `kubectl apply -f k8s/pvc.yaml`.
+- [x] T070 Install KFP standalone + Katib operator; wait for pods ready; `kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8888:80`. **Note**: KFP v2.0.5-pns installed; ml-pipeline API + Argo + Minio + MySQL all running; Katib v0.17.0 fully installed (all 4 pods running); port-forward verified with Katib UI on 8080; ml-pipeline-ui web frontend has ImagePullBackOff (deprecated GCR tags) but KFP API fully functional for programmatic submission.
 
 ## 🔜 Phase O3: CI/CD — Katib HPO (VAE Representation Fix)
 
@@ -222,13 +223,14 @@ Neither model passes both gates. Root cause: `latent_dim=8` + `beta_max=0.5` cre
 
 **Fitness**: `val_fitness = val_macro_f1 * (1.0 if val_fatal_recall >= 0.50 else 0.5)` — evaluated on Z_val (constitution II).
 
-- [ ] T052 [P] Add `kubernetes>=28.0` to `pyproject.toml`; run `uv sync`.
-- [ ] T053 [P] Create `k8s/katib/vae_experiment.yaml`: Katib `Experiment` CRD; objective `val_fitness` (maximize); algorithm `bayesianoptimization`; `maxTrialCount: 15`, `parallelTrialCount: 1`; parameters: `beta_max` list `[0.05, 0.1, 0.2, 0.5, 1.0]` and `latent_dim` list `[8, 16, 32]`; trialTemplate: `python -m src.tune.trial --beta_max={{.HyperParameters.beta_max}} --latent_dim={{.HyperParameters.latent_dim}} --winner={{winner}}`; metrics collector reads `val_fitness=` from stdout.
-- [ ] T056 **RED + GREEN** — Create `src/tune/trial.py`: accepts `--beta_max`, `--latent_dim`, `--winner`; loads X/y splits from PVC; trains VAE with candidate params; encodes all splits; trains winner classifier (seed=0); evaluates on Z_val; computes `val_fitness`; logs to MLflow `crash-severity-tune` tagged `beta_max`, `latent_dim`, `winner`, `trial_type=katib`; prints `val_fitness=<float>` on last stdout line; exits 0.
-- [ ] T057 **RED** — Write `tests/test_tune.py`: mock Kubernetes client; assert `HyperparamTuner.tune()` submits Experiment; reads `currentOptimalTrial.parameterAssignments` for `beta_max` and `latent_dim`; assert `params.yaml` updated with both values. Run — confirm FAIL.
-- [ ] T058 **GREEN** — Implement `HyperparamTuner.tune()` in `src/tune/tuner.py`: load CRD yaml; inject winner; submit via `CustomObjectsApi`; poll until Succeeded/Failed; extract `beta_max` + `latent_dim`; return `TuneResult`. Create `src/tune/run.py`: write `tune.best_params.beta_max` and `tune.best_params.latent_dim` to `params.yaml`; exit 0.
+- [x] T052 [P] Add `kubernetes>=28.0` to `pyproject.toml`; run `uv sync`.
+- [x] T053 [P] Create `k8s/katib/vae_experiment.yaml`: Katib `Experiment` CRD; objective `val_fitness` (maximize); algorithm `bayesianoptimization`; `maxTrialCount: 15`, `parallelTrialCount: 1`; parameters: `beta_max` list `[0.05, 0.1, 0.2, 0.5, 1.0]` and `latent_dim` list `[8, 16, 32]`; trialTemplate: `python -m src.tune.trial --beta_max={{.HyperParameters.beta_max}} --latent_dim={{.HyperParameters.latent_dim}} --winner={{winner}}`; metrics collector reads `val_fitness=` from stdout.
+- [x] T056 **RED + GREEN** — Create `src/tune/trial.py`: accepts `--beta_max`, `--latent_dim`, `--winner`; loads X/y splits from PVC; trains VAE with candidate params; encodes all splits; trains winner classifier (seed=0); evaluates on Z_val; computes `val_fitness`; logs to MLflow `crash-severity-tune` tagged `beta_max`, `latent_dim`, `winner`, `trial_type=katib`; prints `val_fitness=<float>` on last stdout line; exits 0.
+- [x] T057 **RED** — Write `tests/test_tune.py`: mock Kubernetes client; assert `HyperparamTuner.tune()` submits Experiment; reads `currentOptimalTrial.parameterAssignments` for `beta_max` and `latent_dim`; assert `params.yaml` updated with both values. Run — confirm FAIL.
+- [x] T058 **GREEN** — Implement `HyperparamTuner.tune()` in `src/tune/tuner.py`: load CRD yaml; inject winner; submit via `CustomObjectsApi`; poll until Succeeded/Failed; extract `beta_max` + `latent_dim`; return `TuneResult`. Create `src/tune/run.py`: write `tune.best_params.beta_max` and `tune.best_params.latent_dim` to `params.yaml`; exit 0.
 - [ ] T059 `dvc repro tune` — Katib Experiment in Katib UI; 15 MLflow runs in `crash-severity-tune`; `params.yaml` has both best params set.
-- [ ] T060 `dvc repro` (full) — DVC detects `params.yaml` change → re-runs `train_vae → encode → train_ml → train_dl → evaluate → register`; constitution VI gates expected to **PASS**; new `@champion` registered.
+- [ ] T060 `dvc repro` (full) — DVC detects `params.yaml` change → re-runs `train_vae → encode → train_ml → train_dl → evaluate`; constitution VI gates expected to **PASS**.
+- [ ] T051 `dvc repro register` — gates now pass; `@champion` alias set; `mlflow.pyfunc.load_model("models:/crash-severity@champion")` loads; `model.predict(Z_test[:5])` returns shape `(5,)` with values in `{0, 1, 2}`.
 
 ## 🔜 Phase O4: CI/CD — KFP 10-Stage Pipeline
 
