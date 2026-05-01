@@ -219,12 +219,12 @@ log each run; save best.
 
 | Env Var | Default | Description |
 |---|---|---|
-| `TRAIN_Z_PATH` | `data/processed/Z_train_augmented.npy` | Training Z vectors (augmented) |
-| `TRAIN_Y_PATH` | `data/processed/y_train_augmented.npy` | Training labels |
-| `VAL_Z_PATH` | `data/processed/Z_val.npy` | Validation Z vectors |
-| `VAL_Y_PATH` | `data/processed/y_val.npy` | Validation labels |
-| `TEST_Z_PATH` | `data/processed/Z_test.npy` | Test Z vectors |
-| `TEST_Y_PATH` | `data/processed/y_test.npy` | Test labels |
+| `Z_TRAIN_PATH` | `data/processed/Z_train_augmented.npy` | Training Z vectors (augmented) |
+| `Y_TRAIN_PATH` | `data/processed/y_train_augmented.npy` | Training labels |
+| `Z_VAL_PATH` | `data/processed/Z_val.npy` | Validation Z vectors |
+| `Y_VAL_PATH` | `data/processed/y_val.npy` | Validation labels |
+| `Z_TEST_PATH` | `data/processed/Z_test.npy` | Test Z vectors |
+| `Y_TEST_PATH` | `data/processed/y_test.npy` | Test labels |
 | `MODEL_OUTPUT_PATH` | `models/mlp_model.pth` | Best-seed `.pth` checkpoint |
 | `MLFLOW_TRACKING_URI` | `mlruns/` | MLflow tracking store |
 | `PARAMS_PATH` | `params.yaml` | Reads `model.*`, `dl.*`, `mlflow.*`, `ab_test.seeds` |

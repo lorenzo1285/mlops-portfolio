@@ -24,6 +24,7 @@ dependencies = [
     "pyyaml",
     "joblib",
     "ctgan>=0.10",
+    "xgboost>=2.0",
 ]
 
 [dependency-groups]

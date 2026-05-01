@@ -665,3 +665,70 @@ stages:
       hash: md5
       md5: f3a19555739d1c37f23251ea4ecef472
       size: 15203
+  train_ml:
+    cmd: python -m src.train_ml.run
+    deps:
+    - path: data/processed/Z_test.npy
+      hash: md5
+      md5: 1b8c2177ba1d1115c6c8d5e72ffa7616
+      size: 356832
+    - path: data/processed/Z_train_augmented.npy
+      hash: md5
+      md5: b6d19086012f5451b077e7a0dc6ad3d3
+      size: 1749760
+    - path: data/processed/Z_val.npy
+      hash: md5
+      md5: d67b6032bf715625c427212524b6754f
+      size: 356832
+    - path: data/processed/y_test.npy
+      hash: md5
+      md5: 84689db1cdce0e584f0f6c791f5a1fa4
+      size: 89304
+    - path: data/processed/y_train_augmented.npy
+      hash: md5
+      md5: fd824cb0da033261bdc92cd7a8c05d89
+      size: 437536
+    - path: data/processed/y_val.npy
+      hash: md5
+      md5: 42151ae2587e97cf56f01ef0498dba5a
+      size: 89304
+    - path: src/config.py
+      hash: md5
+      md5: 0830753aeb4f6231382d5f37a8dc312c
+      size: 4153
+    - path: src/metrics.py
+      hash: md5
+      md5: 41e1ddc63a2b5a9f54a4df8f1ce70951
+      size: 1774
+    - path: src/train_ml/run.py
+      hash: md5
+      md5: d3c4d5099f36f1533e8d30b064d850f7
+      size: 3227
+    - path: src/train_ml/trainer.py
+      hash: md5
+      md5: bfb3d37e90846ad6bd6b8617c93eb225
+      size: 5737
+    params:
+      params.yaml:
+        ab_test.alpha: 0.05
+        ab_test.seeds:
+        - 0
+        - 1
+        - 2
+        - 3
+        - 4
+        - 5
+        - 6
+        - 7
+        - 8
+        - 9
+        mlflow.experiment_name_ml: crash-severity-ml
+        mlflow.tracking_uri: mlruns/
+        model.fatal_recall_threshold: 0.5
+        model.macro_f1_threshold: 0.35
+        model.n_classes: 3
+    outs:
+    - path: models/best_ml_model.pkl
+      hash: md5
+      md5: 14f65e7feaa209dd54a8cacafd189fc3
+      size: 1129506

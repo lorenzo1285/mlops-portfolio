@@ -165,7 +165,7 @@ stages:
       - dl.patience
       - dl.batch_size
       - dl.lr
-      - dl.dropout
+      - dl.dropout_p
       - model.n_classes
       - mlflow.experiment_name_dl
       - mlflow.tracking_uri

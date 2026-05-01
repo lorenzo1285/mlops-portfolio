@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "4dd93bbc245dbec9dd18504a82b864b5d70776ac8d8abd09b1796d299a3e627e"
     },
+    "caveman-review": {
+      "source": "juliusbrussee/caveman",
+      "sourceType": "github",
+      "skillPath": "skills/caveman-review/SKILL.md",
+      "computedHash": "368a26f2b079ffe0d584f48006524f65cf997cb9369411aa8c6ead216dee22eb"
+    },
     "data-scientist": {
       "source": "borghei/claude-skills",
       "sourceType": "github",

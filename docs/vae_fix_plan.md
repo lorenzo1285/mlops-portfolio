@@ -129,23 +129,88 @@ conjunctive feature patterns, not raw seasonality.
 
 ---
 
-## Next Steps
+## Diagnostic Improvements Added (2026-04-30)
 
-### Immediate — Phase 4A (T108–T113)
-Build the `augment` stage. This is the pipeline blocker for everything downstream:
-- `X_train_augmented.npy` already exists from a previous run but has no DVC-tracked production code
-- T094/T095 (encode pipeline verification) remain blocked until augment stage is built
+### MLflow visual artifacts — `src/plots.py`
 
-### Medium term — Katib β-HPO (T052–T060)
-The best epoch was 4 (during β warmup, β ≈ 0.13). This suggests `beta_max=0.5` with
-`warmup_epochs=15` may be suboptimal — the model prefers a lower effective β. Katib will
-search `beta_max` over [0.5, 1.0, 2.0, 4.0, 8.0] to find the optimal value. The annealing
-schedule (T106/T107) is already in place so all Katib trials benefit from warmup.
+New shared module `src/plots.py` exposes two functions callable inside any active MLflow run:
 
-### If fatal recall < 0.50 after Phase 4 evaluation
-Option: reduce `latent_dim` from 8 → 4 to match the effective rank of the active dims.
-This forces the encoder to concentrate all information into fewer, denser dims and may
-improve Fatal-PDO separation. Do not reduce before Phase 4 results are in.
+```
+log_confusion_matrix(y_true, y_pred, class_names, artifact_name)
+log_roc_curve(y_true, probs, class_names, artifact_name)
+```
+
+Both are wired into `src/train_dl/trainer.py` and will be wired into `src/train_ml/trainer.py`
+at T036. Per-class ROC AUC is also logged as scalar metrics (`roc_auc_pdo`, `roc_auc_injury`,
+`roc_auc_fatal`) so seeds can be ranked on Fatal AUC in the MLflow comparison table.
+
+The Fatal ROC AUC on the current run (16 test samples) is the key diagnostic: an AUC near 0.5
+confirms no discriminative signal in Z-space; AUC > 0.70 means the classifier can rank Fatal
+correctly even if the threshold is wrong.
+
+### MLflow run naming
+
+`mlflow.start_run(run_name=f"mlp_seed_{seed}")` — runs now appear as `mlp_seed_0` … `mlp_seed_9`
+in the UI instead of auto-generated names. Same convention will apply to XGBoost (`xgb_seed_{seed}`).
+
+---
+
+## Mitigation Plan — Current Execution Order (2026-04-30)
+
+Root causes confirmed from Phase 4B evaluation (see `docs/phase4b_results_and_next_steps.md`):
+
+| Problem | Severity | Root cause |
+|---|---|---|
+| Fatal macro F1 = 0.010 | Primary | Only 16 Fatal test rows; Fatal precision = 0.005 |
+| Distribution mismatch | Secondary | CTGAN pushed train Fatal to 5 %; val/test remain at 0.14 % |
+| Z-space bottleneck | Tertiary | KL loss ≈ reconstruction loss; 8-dim bottleneck erases class structure |
+
+### Phase A — Close the pipeline skeleton (no fixes yet)
+
+**Goal**: end-to-end pipeline running; gates fail with current params to confirm diagnosis.
+
+| Step | Task | Description |
+|---|---|---|
+| 1 | T035 | XGBoost `train_ml` RED |
+| 2 | T036 | XGBoost `train_ml` GREEN — `MLTrainer` with `xgb_seed_{seed}` run names + plots |
+| 3 | T036b | `train_ml/run.py` |
+| 4 | T037 | `dvc repro train_ml` — 10 runs in `crash-severity-ml` |
+| 5 | T046 | `evaluate` RED |
+| 6 | T047 | `evaluate` GREEN — `ABEvaluator` (Welch's t-test, constitutional gates) |
+| 7 | T048 | `dvc repro evaluate` — **expected gate failure**; confirms diagnosis |
+| 8 | T049–T051 | `register` RED → GREEN → `dvc repro register` |
+
+### Phase B — Fix the representation
+
+**Goal**: improve Z-space quality; macro F1 gate passes.
+
+| Step | Action | Mechanism |
+|---|---|---|
+| 9 | `params.yaml`: `latent_dim: 8 → 16` | More capacity; less aggressive compression of 28 features |
+| 10 | `params.yaml`: `beta_max: 0.5 → 0.1` | Lower KL penalty; encoder retains more discriminative structure |
+| 11 | `dvc repro train_vae encode train_ml train_dl evaluate` | Full re-run on new Z-space |
+| 12 | Bayesian prior correction in `evaluate` | Post-hoc: rescale Fatal probs by `(0.0014 / 0.05)` before argmax |
+| 13 | Empirical threshold sweep on Z_val | Find optimal Fatal decision threshold; replace hard 0.5 cutoff |
+| 14 | Re-check constitution VI gates | `eout_macro_f1 > 0.35`, `eout_fatal_recall > 0.50` |
+
+### Phase C — HPO + productionisation
+
+**Goal**: optimal β via Katib; pipeline packaged for Kubernetes.
+
+| Step | Task | Description |
+|---|---|---|
+| 15 | T052–T060 | Katib β-HPO on stable representation |
+| 16 | T061–T065 | `register` final — bundle VAE encoder + champion classifier |
+| 17 | T066–T074 | Docker + Kubernetes packaging (KFP pipeline) |
+
+### Decision gate between Phase A and B
+
+If XGBoost (Phase A) scores macro F1 materially above MLP (≥ 0.38 vs 0.334), the MLP config
+is the constraint, not the Z-space. In that case Phase B still runs (latent_dim + beta_max change)
+but MLP architecture may also need revisiting (wider hidden layer, additional layer).
+
+If XGBoost also plateaus around 0.33–0.34, the Z-space bottleneck (Problem 3) is confirmed as
+the primary constraint — proceed with Phase B representation fixes before any classifier tuning.
 
 ---
 
