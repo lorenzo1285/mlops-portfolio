@@ -44,41 +44,51 @@ spec:
         description: VAE latent space dimensionality (wider bottleneck preserves feature interactions)
         reference: latent_dim
     trialSpec:
-      restartPolicy: Never
-      containers:
-        - name: trial
-          image: mlops-portfolio:latest
-          imagePullPolicy: Never  # Use local Docker image
-          command:
-            - python
-            - -m
-            - src.tune.trial
-            - --beta_max=${trialParameters.beta_max}
-            - --latent_dim=${trialParameters.latent_dim}
-            - --winner={{winner}}
-          env:
-            - name: MLFLOW_TRACKING_URI
-              value: "file:///app/mlruns"
-            - name: PARAMS_PATH
-              value: "/app/params.yaml"
-          volumeMounts:
-            - name: workspace
-              mountPath: /app
-          resources:
-            requests:
-              memory: "4Gi"
-              cpu: "2"
-            limits:
-              memory: "8Gi"
-              cpu: "4"
-      volumes:
-        - name: workspace
-          persistentVolumeClaim:
-            claimName: mlops-portfolio-pvc
+      apiVersion: batch/v1
+      kind: Job
+      spec:
+        template:
+          spec:
+            containers:
+              - name: trial
+                image: mlops-portfolio:latest
+                imagePullPolicy: Never  # Use local Docker image
+                # {{winner}} is a Python template placeholder rendered by
+                # HyperparamTuner.tune() via str.replace before kubectl submission.
+                # Do NOT apply this file directly with kubectl — always submit via tuner.
+                command:
+                  - python
+                  - -m
+                  - src.tune.trial
+                  - --beta_max=${trialParameters.beta_max}
+                  - --latent_dim=${trialParameters.latent_dim}
+                  - --winner={{winner}}
+                env:
+                  - name: PYTHONUNBUFFERED
+                    value: "1"
+                  - name: MLFLOW_TRACKING_URI
+                    value: "file:///app/mlruns"
+                  - name: PARAMS_PATH
+                    value: "/app/params.yaml"
+                volumeMounts:
+                  - name: workspace
+                    mountPath: /app
+                resources:
+                  requests:
+                    memory: "4Gi"
+                    cpu: "2"
+                  limits:
+                    memory: "8Gi"
+                    cpu: "4"
+            volumes:
+              - name: workspace
+                persistentVolumeClaim:
+                  claimName: mlops-portfolio-pvc
+            restartPolicy: Never
   metricsCollectorSpec:
     source:
-      filter:
-        metricsFormat:
-          - "val_fitness=([\\d\\.]+)"
+      fileSystemPath:
+        path: "/var/log/katib/metrics.log"
+        kind: File
     collector:
-      kind: StdOut
+      kind: File

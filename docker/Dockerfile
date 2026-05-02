@@ -24,6 +24,7 @@ RUN uv pip install --system --no-cache .
 
 # Copy pipeline configuration
 COPY dvc.yaml params.yaml ./
+COPY k8s/ k8s/
 COPY great_expectations/gx/ great_expectations/gx/
 
 # Set Python path for module imports

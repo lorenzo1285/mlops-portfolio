@@ -1,10 +1,11 @@
 """Tests for tune stage — T057/T058.
 
 Validates that the tune stage:
-1. Submits Katib Experiment CRD to Kubernetes
+1. Submits Katib Experiment CRD to Kubernetes with {{winner}} rendered
 2. Polls until experiment completes (Succeeded status)
 3. Reads optimal trial parameterAssignments (beta_max, latent_dim)
-4. Updates params.yaml with best_params.beta_max and best_params.latent_dim
+4. Returns TuneResult with correct typed best_params and best_value
+   (params.yaml is updated by run.py, not by HyperparamTuner)
 """
 from __future__ import annotations
 
@@ -99,20 +100,29 @@ def katib_experiment_yaml(tmp_path):
                     {"name": "latent_dim", "reference": "latent_dim"},
                 ],
                 "trialSpec": {
-                    "containers": [
-                        {
-                            "name": "trial",
-                            "image": "mlops-portfolio:latest",
-                            "command": [
-                                "python",
-                                "-m",
-                                "src.tune.trial",
-                                "--beta_max=${trialParameters.beta_max}",
-                                "--latent_dim=${trialParameters.latent_dim}",
-                                "--winner={{winner}}",
-                            ],
+                    "apiVersion": "batch/v1",
+                    "kind": "Job",
+                    "spec": {
+                        "template": {
+                            "spec": {
+                                "containers": [
+                                    {
+                                        "name": "trial",
+                                        "image": "mlops-portfolio:latest",
+                                        "command": [
+                                            "python",
+                                            "-m",
+                                            "src.tune.trial",
+                                            "--beta_max=${trialParameters.beta_max}",
+                                            "--latent_dim=${trialParameters.latent_dim}",
+                                            "--winner={{winner}}",
+                                        ],
+                                    }
+                                ],
+                                "restartPolicy": "Never",
+                            }
                         }
-                    ],
+                    },
                 },
             },
         },
@@ -129,15 +139,13 @@ def katib_experiment_yaml(tmp_path):
 def test_tune_submits_katib_experiment(
     mlflow_cfg, tune_cfg, sample_data, katib_experiment_yaml
 ):
-    """T057: Verify HyperparamTuner submits Katib Experiment CRD."""
+    """T057: HyperparamTuner submits Katib Experiment CRD with winner rendered."""
     X_train, y_train, X_val, y_val = sample_data
 
-    # Mock Kubernetes client
     mock_k8s_client = MagicMock()
     mock_custom_api = MagicMock()
     mock_k8s_client.CustomObjectsApi.return_value = mock_custom_api
 
-    # Mock experiment status response (Succeeded)
     mock_experiment_status = {
         "status": {
             "conditions": [
@@ -161,14 +169,18 @@ def test_tune_submits_katib_experiment(
         }
     }
 
-    # Configure mock to return experiment status on get
     mock_custom_api.get_namespaced_custom_object.return_value = mock_experiment_status
 
-    with patch("src.tune.tuner.client", mock_k8s_client), patch("src.tune.tuner.time.sleep"):
+    with (
+        patch("src.tune.tuner.client", mock_k8s_client),
+        patch("src.tune.tuner.config"),
+        patch("src.tune.tuner.time.sleep"),
+    ):
         tuner = HyperparamTuner(
             mlflow_config=mlflow_cfg,
             tune_config=tune_cfg,
             winner="ml",
+            yaml_path=katib_experiment_yaml,
         )
 
         result = tuner.tune(X_train, y_train, X_val, y_val)
@@ -183,6 +195,15 @@ def test_tune_submits_katib_experiment(
         assert call_args[1]["namespace"] == "default"
         assert call_args[1]["plural"] == "experiments"
 
+        # Verify {{winner}} was rendered before submission
+        body = call_args[1]["body"]
+        submitted_cmd = (
+            body["spec"]["trialTemplate"]["trialSpec"]
+            ["spec"]["template"]["spec"]["containers"][0]["command"]
+        )
+        assert "--winner=ml" in submitted_cmd
+        assert "{{winner}}" not in " ".join(submitted_cmd)
+
         # Verify result contains best params
         assert result.best_params["beta_max"] == 0.2
         assert result.best_params["latent_dim"] == 16
@@ -190,11 +211,12 @@ def test_tune_submits_katib_experiment(
         assert result.n_trials == 15
 
 
-def test_tune_polls_until_succeeded(mlflow_cfg, tune_cfg, sample_data):
-    """T057: Verify HyperparamTuner polls experiment until Succeeded status."""
+def test_tune_polls_until_succeeded(
+    mlflow_cfg, tune_cfg, sample_data, katib_experiment_yaml
+):
+    """T057: HyperparamTuner polls experiment until Succeeded status."""
     X_train, y_train, X_val, y_val = sample_data
 
-    # Mock Kubernetes client
     mock_k8s_client = MagicMock()
     mock_custom_api = MagicMock()
     mock_k8s_client.CustomObjectsApi.return_value = mock_custom_api
@@ -230,11 +252,16 @@ def test_tune_polls_until_succeeded(mlflow_cfg, tune_cfg, sample_data):
 
     mock_custom_api.get_namespaced_custom_object.side_effect = mock_experiment_statuses
 
-    with patch("src.tune.tuner.client", mock_k8s_client), patch("src.tune.tuner.time.sleep"):
+    with (
+        patch("src.tune.tuner.client", mock_k8s_client),
+        patch("src.tune.tuner.config"),
+        patch("src.tune.tuner.time.sleep"),
+    ):
         tuner = HyperparamTuner(
             mlflow_config=mlflow_cfg,
             tune_config=tune_cfg,
             winner="dl",
+            yaml_path=katib_experiment_yaml,
         )
 
         result = tuner.tune(X_train, y_train, X_val, y_val)
@@ -247,27 +274,12 @@ def test_tune_polls_until_succeeded(mlflow_cfg, tune_cfg, sample_data):
         assert result.best_params["latent_dim"] == 32
 
 
-def test_tune_updates_params_yaml(mlflow_cfg, tune_cfg, sample_data, tmp_path):
-    """T057: Verify tune stage updates params.yaml with best hyperparameters."""
+def test_tune_returns_typed_best_params(
+    mlflow_cfg, tune_cfg, sample_data, katib_experiment_yaml
+):
+    """T057: best_params values are typed (float for beta_max, int for latent_dim)."""
     X_train, y_train, X_val, y_val = sample_data
 
-    # Create temporary params.yaml
-    params_path = tmp_path / "params.yaml"
-    params_data = {
-        "vae": {
-            "beta_max": 1.0,
-            "latent_dim": 8,
-        },
-        "tune": {
-            "experiment_name": "vae-hyperparameter-tuning",
-            "max_trials": 15,
-            "namespace": "default",
-        },
-    }
-    with open(params_path, "w") as f:
-        yaml.dump(params_data, f)
-
-    # Mock Kubernetes client
     mock_k8s_client = MagicMock()
     mock_custom_api = MagicMock()
     mock_k8s_client.CustomObjectsApi.return_value = mock_custom_api
@@ -289,37 +301,36 @@ def test_tune_updates_params_yaml(mlflow_cfg, tune_cfg, sample_data, tmp_path):
     }
     mock_custom_api.get_namespaced_custom_object.return_value = mock_experiment_status
 
-    with patch("src.tune.tuner.client", mock_k8s_client), patch("src.tune.tuner.time.sleep"), patch.dict(
-        os.environ, {"PARAMS_PATH": str(params_path)}
+    with (
+        patch("src.tune.tuner.client", mock_k8s_client),
+        patch("src.tune.tuner.config"),
+        patch("src.tune.tuner.time.sleep"),
     ):
         tuner = HyperparamTuner(
             mlflow_config=mlflow_cfg,
             tune_config=tune_cfg,
             winner="ml",
+            yaml_path=katib_experiment_yaml,
         )
 
         result = tuner.tune(X_train, y_train, X_val, y_val)
 
-        # Verify result
+        assert isinstance(result.best_params["beta_max"], float)
+        assert isinstance(result.best_params["latent_dim"], int)
         assert result.best_params["beta_max"] == 0.1
         assert result.best_params["latent_dim"] == 16
 
-    # Read updated params.yaml (would be done by run.py)
-    # For now, just verify the result object has correct values
-    assert "beta_max" in result.best_params
-    assert "latent_dim" in result.best_params
 
-
-def test_tune_handles_failed_experiment(mlflow_cfg, tune_cfg, sample_data):
-    """T057: Verify HyperparamTuner raises error when Katib experiment fails."""
+def test_tune_handles_failed_experiment(
+    mlflow_cfg, tune_cfg, sample_data, katib_experiment_yaml
+):
+    """T057: HyperparamTuner raises RuntimeError when Katib experiment fails."""
     X_train, y_train, X_val, y_val = sample_data
 
-    # Mock Kubernetes client
     mock_k8s_client = MagicMock()
     mock_custom_api = MagicMock()
     mock_k8s_client.CustomObjectsApi.return_value = mock_custom_api
 
-    # Simulate Failed experiment
     mock_experiment_status = {
         "status": {
             "conditions": [{"type": "Failed", "status": "True", "reason": "TrialFailed"}],
@@ -327,11 +338,16 @@ def test_tune_handles_failed_experiment(mlflow_cfg, tune_cfg, sample_data):
     }
     mock_custom_api.get_namespaced_custom_object.return_value = mock_experiment_status
 
-    with patch("src.tune.tuner.client", mock_k8s_client), patch("src.tune.tuner.time.sleep"):
+    with (
+        patch("src.tune.tuner.client", mock_k8s_client),
+        patch("src.tune.tuner.config"),
+        patch("src.tune.tuner.time.sleep"),
+    ):
         tuner = HyperparamTuner(
             mlflow_config=mlflow_cfg,
             tune_config=tune_cfg,
             winner="ml",
+            yaml_path=katib_experiment_yaml,
         )
 
         with pytest.raises(RuntimeError, match="Katib experiment failed"):

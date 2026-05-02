@@ -170,8 +170,12 @@ def main():
                 "vae_final_elbo": vae_result.final_elbo,
             })
 
-        # Katib metrics collector reads the last stdout line matching val_fitness=<float>
-        print(f"val_fitness={val_fitness:.6f}")
+        # Write metric for Katib File collector (EmptyDir injected at /var/log/katib/).
+        # Also print to stdout as a fallback for local runs.
+        metrics_path = Path("/var/log/katib/metrics.log")
+        metrics_path.parent.mkdir(parents=True, exist_ok=True)
+        metrics_path.write_text(f"val_fitness={val_fitness:.6f}\n")
+        print(f"val_fitness={val_fitness:.6f}", flush=True)
 
     sys.exit(0)
 

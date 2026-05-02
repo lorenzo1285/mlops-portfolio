@@ -1,0 +1,7 @@
+{
+  "beta_max": 0.2,
+  "latent_dim": 32,
+  "val_fitness": 0.186146,
+  "n_trials": 9,
+  "winner": "ml"
+}

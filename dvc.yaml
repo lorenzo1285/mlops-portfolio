@@ -200,12 +200,17 @@ stages:
     deps:
       - src/tune/run.py
       - src/tune/tuner.py
+      - src/tune/trial.py
       - src/config.py
       - docs/evaluation_report.json
+      - k8s/katib/vae_experiment.yaml
     params:
       - tune.experiment_name
       - tune.max_trials
+      - tune.namespace
+      - tune.max_dl_trial_epochs
       - mlflow.tracking_uri
+      - mlflow.experiment_name_tune
     outs:
       - docs/katib_best_params.json:
           cache: false
