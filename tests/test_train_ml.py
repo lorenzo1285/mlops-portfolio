@@ -263,3 +263,96 @@ class TestTrainML:
         for indicator in autolog_indicators:
             assert indicator not in params, \
                 f"Autolog indicator '{indicator}' found in params — autolog should be disabled"
+
+    def test_fatal_threshold_overrides_argmax(
+        self, mlflow_config, dummy_Z_splits, dummy_y_splits, tmp_path
+    ):
+        """T122b: fatal_threshold=0.15 predicts Fatal when prob=0.2; threshold=0.5 does not."""
+        # Arrange
+        Z_train, Z_val, Z_test = dummy_Z_splits
+        y_train, y_val, y_test = dummy_y_splits
+        
+        # We need a row where Fatal prob is 0.2
+        # We will mock the classifier and its predict_proba
+        from unittest.mock import MagicMock, patch
+        
+        mock_clf = MagicMock()
+        # Mock predict_proba to return 0.2 for Fatal (class 2) on the first row
+        # Probs: [0.4, 0.4, 0.2] -> Argmax is 0 or 1, but Threshold 0.15 makes it 2
+        mock_probs = np.array([[0.4, 0.4, 0.2]])
+        mock_clf.predict_proba.return_value = mock_probs
+        
+        # Config with threshold 0.15
+        config_low = ModelConfig(
+            n_classes=3,
+            n_select=10,
+            macro_f1_threshold=0.35,
+            fatal_recall_threshold=0.50,
+            fatal_threshold=0.15,
+        )
+        
+        trainer = MLTrainer(
+            mlflow_config=mlflow_config,
+            model_config=config_low,
+            seeds=[0],
+        )
+        
+        # Act
+        preds = trainer._apply_threshold(mock_probs)
+        
+        # Assert: Should be Fatal (class 2)
+        assert preds[0] == 2, \
+            f"Expected Fatal (2) with threshold 0.15 and prob 0.2, got {preds[0]}"
+            
+        # Config with threshold 0.5
+        config_high = ModelConfig(
+            n_classes=3,
+            n_select=10,
+            macro_f1_threshold=0.35,
+            fatal_recall_threshold=0.50,
+            fatal_threshold=0.50,
+        )
+        trainer_high = MLTrainer(
+            mlflow_config=mlflow_config,
+            model_config=config_high,
+            seeds=[0],
+        )
+        preds_high = trainer_high._apply_threshold(mock_probs)
+        
+        # Assert: Should NOT be Fatal (argmax of [0.4, 0.4] is 0 or 1)
+        assert preds_high[0] != 2, \
+            f"Expected non-Fatal with threshold 0.5 and prob 0.2, got {preds_high[0]}"
+
+    def test_seed_selection_uses_val_not_test(
+        self, mlflow_config, model_config, dummy_Z_splits, dummy_y_splits, tmp_path
+    ):
+        """T122b RED: seed selection uses eval_macro_f1 (val), not eout_macro_f1 (test)."""
+        # Arrange
+        Z_train, Z_val, Z_test = dummy_Z_splits
+        y_train, y_val, y_test = dummy_y_splits
+        
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        mlflow.set_experiment(mlflow_config.experiment_name_ml)
+        
+        trainer = MLTrainer(
+            mlflow_config=mlflow_config,
+            model_config=model_config,
+            seeds=[42, 43],  # two seeds to test selection
+        )
+        
+        # Act
+        result = trainer.train(Z_train, y_train, Z_val, y_val, Z_test, y_test)
+        
+        # Assert: the winning run should have logged eval_macro_f1 (val metric)
+        run = mlflow.get_run(result.best_run_id)
+        metrics = run.data.metrics
+        
+        # RED expectation: eval_macro_f1 should exist (validation metric)
+        # Current implementation doesn't compute val predictions, so this will fail
+        assert "eval_macro_f1" in metrics, \
+            ("Seed selection should use eval_macro_f1 (val), but metric not found. "
+             "Current implementation likely uses eout_macro_f1 (test) — violates constitution II.")
+        
+        # Additional check: eval_fatal_recall should also be logged
+        assert "eval_fatal_recall" in metrics, \
+            "eval_fatal_recall (val) should be logged for transparency."

@@ -26,6 +26,11 @@ dependencies = [
     "joblib",
     "ctgan>=0.10",
     "xgboost>=2.0",
+    "imbalanced-learn>=0.14.1",
+    "plotly>=6.7.0",
+    "shap>=0.45.1",
+    "lime>=0.2.0.1",
+    "optuna>=4.8.0",
 ]
 
 [dependency-groups]

@@ -1,9 +1,11 @@
 """Tests for train_vae stage - Denoising β-VAE training."""
 import os
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import mlflow
 import numpy as np
+import optuna
 import pytest
 import torch
 
@@ -297,4 +299,101 @@ class TestTrainVAE:
         for dim_idx, std_val in enumerate(mu_std):
             assert std_val > 0.05, \
                 f"Dimension {dim_idx} has std={std_val:.4f} < 0.05 (posterior collapse detected)"
+
+    # --- Optuna Integration Tests (T127a) ---
+
+    def test_train_accepts_optuna_trial_parameter(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """DVAETrainer.train() accepts optional optuna_trial=None parameter."""
+        # Arrange
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+        
+        # Act: Call train() with optuna_trial=None explicitly
+        # This should work the same as calling without it
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all, optuna_trial=None)
+        
+        # Assert: Returns valid result
+        assert isinstance(result, VAETrainResult), \
+            f"Expected VAETrainResult, got {type(result)}"
+        assert result.best_epoch >= 0, \
+            f"Expected best_epoch >= 0, got {result.best_epoch}"
+
+    def test_train_calls_trial_report_each_epoch(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """When optuna_trial is provided, trial.report(elbo, epoch) is called each epoch."""
+        # Arrange: Create mock trial
+        mock_trial = MagicMock(spec=optuna.trial.Trial)
+        mock_trial.should_prune.return_value = False  # Don't prune
+        
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+        
+        # Act: Train with mock trial
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all, optuna_trial=mock_trial)
+        
+        # Assert: trial.report() was called at least once (for each epoch)
+        assert mock_trial.report.call_count >= 1, \
+            f"Expected trial.report() called at least once, got {mock_trial.report.call_count} calls"
+        
+        # Assert: trial.report() was called with (elbo, epoch) signature
+        # Get first call arguments
+        first_call = mock_trial.report.call_args_list[0]
+        assert len(first_call[0]) == 2, \
+            f"Expected trial.report(elbo, epoch) with 2 args, got {len(first_call[0])}"
+        
+        elbo_arg, epoch_arg = first_call[0]
+        assert isinstance(elbo_arg, float), \
+            f"Expected ELBO (float) as first arg, got {type(elbo_arg)}"
+        assert isinstance(epoch_arg, int), \
+            f"Expected epoch (int) as second arg, got {type(epoch_arg)}"
+        assert epoch_arg == 0, \
+            f"Expected first call at epoch=0, got epoch={epoch_arg}"
+
+    def test_train_raises_trial_pruned_when_should_prune_returns_true(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """When optuna_trial.should_prune() returns True after epoch 1, train() raises optuna.TrialPruned."""
+        # Arrange: Create mock trial that prunes after epoch 1
+        mock_trial = MagicMock(spec=optuna.trial.Trial)
+        
+        # should_prune() returns False for epoch 0, True for epoch >= 1
+        call_count = [0]
+        def should_prune_side_effect():
+            result = call_count[0] >= 1  # Prune after first epoch
+            call_count[0] += 1
+            return result
+        
+        mock_trial.should_prune.side_effect = should_prune_side_effect
+        
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+        
+        # Act & Assert: train() should raise optuna.TrialPruned
+        with pytest.raises(optuna.TrialPruned):
+            trainer.train(dummy_X_all, y_all=dummy_y_all, optuna_trial=mock_trial)
+        
+        # Assert: should_prune() was called
+        assert mock_trial.should_prune.call_count >= 2, \
+            f"Expected should_prune() called at least twice, got {mock_trial.should_prune.call_count} calls"
+
+    def test_train_with_optuna_trial_none_completes_normally(
+        self, minimal_vae_config, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """When optuna_trial=None (default), training completes normally without errors."""
+        # Arrange
+        trainer = DVAETrainer(minimal_vae_config, mlflow_config)
+        
+        # Act: Train without optuna_trial (same as current behavior)
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+        
+        # Assert: Training completed successfully
+        assert isinstance(result, VAETrainResult), \
+            f"Expected VAETrainResult, got {type(result)}"
+        assert result.best_epoch >= 0, \
+            f"Expected best_epoch >= 0, got {result.best_epoch}"
+        assert Path(result.encoder_path).exists(), \
+            f"Encoder checkpoint not found at {result.encoder_path}"
+        assert Path(result.decoder_path).exists(), \
+            f"Decoder checkpoint not found at {result.decoder_path}"
+
 

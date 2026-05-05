@@ -83,13 +83,11 @@ def main() -> None:
         print(f"  {report_path}")
         print(f"  {ab_report_path}")
         
-        # Exit 1 if gates fail (triggers Katib HPO loop)
+        # Always exit 0 — tune stage will check gates_passed and decide whether to run HPO
         if not result.gates_passed:
-            print("\nExiting with code 1 — gates failed (expected at this stage)")
-            print("Next step: Katib HPO will search beta_max + latent_dim")
-            sys.exit(1)
-        
-        print("\nExiting with code 0 — gates passed")
+            print("\nGates failed — tune stage will run Optuna HPO")
+        else:
+            print("\nGates passed — tune stage will skip HPO")
     
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)

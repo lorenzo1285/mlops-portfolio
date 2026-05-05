@@ -138,6 +138,7 @@ stages:
       - model.n_classes
       - model.macro_f1_threshold
       - model.fatal_recall_threshold
+      - model.fatal_threshold
       - mlflow.experiment_name_ml
       - mlflow.tracking_uri
       - ab_test.seeds
@@ -199,20 +200,37 @@ stages:
     cmd: python -m src.tune.run
     deps:
       - src/tune/run.py
-      - src/tune/tuner.py
-      - src/tune/trial.py
+      - src/tune/optuna_tuner.py
       - src/config.py
       - docs/evaluation_report.json
-      - k8s/katib/vae_experiment.yaml
+      - data/processed/X_train.npy
+      - data/processed/X_train_augmented.npy
+      - data/processed/y_train_augmented.npy
+      - data/processed/X_val.npy
+      - data/processed/y_val.npy
+      - data/processed/X_test.npy
+      - data/processed/y_test.npy
+      - data/processed/y_train.npy
     params:
       - tune.experiment_name
-      - tune.max_trials
-      - tune.namespace
-      - tune.max_dl_trial_epochs
+      - tune.optuna.n_trials
+      - tune.optuna.study_name
+      - tune.optuna.direction
+      - tune.optuna.pruner.n_startup_trials
+      - tune.optuna.pruner.n_warmup_steps
+      - tune.optuna.search_space.beta_max_low
+      - tune.optuna.search_space.beta_max_high
+      - tune.optuna.search_space.latent_dim_choices
+      - tune.optuna.search_space.warmup_epochs_low
+      - tune.optuna.search_space.warmup_epochs_high
+      - tune.optuna.search_space.lr_low
+      - tune.optuna.search_space.lr_high
+      - tune.optuna.search_space.dropout_p_low
+      - tune.optuna.search_space.dropout_p_high
       - mlflow.tracking_uri
       - mlflow.experiment_name_tune
     outs:
-      - docs/katib_best_params.json:
+      - docs/optuna_best_params.json:
           cache: false
 
   register:

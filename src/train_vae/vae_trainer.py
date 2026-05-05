@@ -5,6 +5,7 @@ from pathlib import Path
 
 import mlflow
 import numpy as np
+import optuna
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -181,6 +182,7 @@ class DVAETrainer:
         X_all: np.ndarray,
         y_all: np.ndarray | None = None,
         output_dir: Path | None = None,
+        optuna_trial: optuna.trial.Trial | None = None,
     ) -> VAETrainResult:
         """Train VAE on full dataset with early stopping.
 
@@ -190,6 +192,8 @@ class DVAETrainer:
                    so Fatal rows get proportional gradient share. Reconstruction target
                    is always clean X (no label leakage).
             output_dir: Directory for encoder/decoder checkpoints. Defaults to Path("models").
+            optuna_trial: Optional Optuna trial for hyperparameter optimization.
+                          If provided, reports ELBO per epoch and raises TrialPruned if pruned.
 
         Returns:
             VAETrainResult with best checkpoint paths and metrics
@@ -252,8 +256,9 @@ class DVAETrainer:
         encoder_path = str(checkpoint_dir / "vae_encoder.pth")
         decoder_path = str(checkpoint_dir / "vae_decoder.pth")
         
-        # Start MLflow run
-        with mlflow.start_run(run_name=self._run_name) as run:
+        # Start MLflow run (nested if called from Optuna)
+        active_run = mlflow.active_run()
+        with mlflow.start_run(run_name=self._run_name, nested=active_run is not None) as run:
             # Log parameters
             mlflow.log_params({
                 "encoder_dims": str(self._vae_config.encoder_dims),
@@ -322,11 +327,18 @@ class DVAETrainer:
                 
                 # Log metrics to MLflow
                 # ELBO is negative loss (we minimize loss, maximize ELBO)
-                mlflow.log_metric("vae_elbo", -val_loss, step=epoch)
+                val_elbo = -val_loss
+                mlflow.log_metric("vae_elbo", val_elbo, step=epoch)
                 mlflow.log_metric("vae_reconstruction_loss", val_recon, step=epoch)
                 mlflow.log_metric("vae_kl_loss", val_kl, step=epoch)
                 mlflow.log_metric("train_elbo", -train_loss, step=epoch)
                 mlflow.log_metric("kl_beta", beta_t, step=epoch)
+                
+                # Optuna trial reporting and pruning
+                if optuna_trial is not None:
+                    optuna_trial.report(val_elbo, epoch)
+                    if optuna_trial.should_prune():
+                        raise optuna.TrialPruned()
                 
                 # Early stopping check
                 if val_loss < best_val_elbo:

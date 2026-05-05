@@ -224,9 +224,9 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 - Champion model alias: `models:/crash-severity@champion`
 - Featurize logs: `n_features_raw`, `n_features_selected`, `feature_selection_method`, `samples_per_param_ratio`
 
-## Constitution (v3.3.0)
+## Constitution (v3.4.0)
 
-17 non-negotiable principles at `.specify/memory/constitution.md`. Key ones:
+18 non-negotiable principles at `.specify/memory/constitution.md`. Key ones:
 
 - **I** Feature leakage prevention — no post-crash columns as model inputs
 - **II** 3-way split (70/15/15) — train fits weights; val used for HPO fitness + early stopping; test strictly reserved for final A/B evaluation only
@@ -241,8 +241,9 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 - **XIV** Deep module architecture — small interfaces (constructor + 1 public method), large implementation; boundary tests only
 - **XV** TDD for all `src/` code — red→green→refactor, vertical slices only
 - **XVI** GE is the exclusive data quality assertion layer — no ad-hoc checks in stage code or tests; boundary tests downstream of `validate` use `data/processed/raw.csv`, not `data/raw/`
+- **XVIII** Real data fixtures only — all tests MUST use real pipeline artifacts or minimal real-data subsets; purely synthetic/dummy data (e.g., `np.random.randn`) prohibited
 
-Constitution version: **v3.3.0** (last amended 2026-04-28)
+Constitution version: **v3.4.0** (last amended 2026-05-02)
 
 ## Design Rules (session-established)
 

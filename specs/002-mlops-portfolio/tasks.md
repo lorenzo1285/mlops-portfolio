@@ -1,6 +1,6 @@
 # Tasks: MLOps Learning Portfolio — VAE-Based Crash Severity Pipeline
 
-**Constitution**: v3.3.0 | **Architecture**: 10-stage DVC pipeline | **Target**: crash severity 3-class (PDO / Injury / Fatal)
+**Constitution**: v3.4.0 | **Architecture**: 10-stage DVC pipeline | **Target**: crash severity 3-class (PDO / Injury / Fatal)
 
 ---
 
@@ -16,7 +16,7 @@
 │   └──────────┘      └──────────────────┘      └────────────────┘   │
 │        ▲                    ▲                         │             │
 │        │                    └─────────────────────────┘             │
-│        │                      Katib HPO: gates fail →               │
+│        │                      Optuna HPO: gates fail →              │
 │        │                      re-tune VAE → re-run pipeline         │
 │        │                                                             │
 │        └─────────────────────────────────────────────────────────── │
@@ -24,8 +24,110 @@
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-**Current position**: Phase M4 complete — entering Operations (Phase O1 TDD, then O2 infrastructure, then O3 Katib).
-**Next loop trigger**: evaluate gates FAIL (expected) → Katib searches `beta_max` + `latent_dim` → pipeline re-runs with best params.
+**Current position**: O3.5 (Optuna HPO) → if gates fail → M5 (model fixes).  
+**Current metrics**: val recall=52.4% ✅, test recall=33.3% ❌ — 4 more correct Fatal predictions needed.
+
+---
+
+## ▶️ WHAT TO DO NEXT — Step-by-Step Execution Order
+
+> Follow this list top to bottom. Each step tells you exactly what to do and where to go next.
+
+### STEP 1 — Optuna HPO scaffold (done ✅)
+
+| Done | Task | Action |
+|------|------|--------|
+| ✅ | T126a | `uv add optuna` |
+| ✅ | T126b | Add `tune.optuna.*` to `params.yaml` |
+| ✅ | T126c | Add `OptunaConfig` to `src/config.py` |
+
+### STEP 2 — DVAETrainer pruning hook (TDD)
+
+| Done | Task | Action |
+|------|------|--------|
+| ✅ | **T127a** | **RED** — write failing tests in `tests/test_train_vae.py` |
+| ✅ | **T127b** | **GREEN** — add `optuna_trial=None` param to `DVAETrainer.train()` |
+
+### STEP 3 — OptunaTuner class (TDD)
+
+| Done | Task | Action |
+|------|------|--------|
+| ✅ | **T128a** | **RED** — write failing tests in `tests/test_optuna_tuner.py` |
+| ✅ | **T128b** | **GREEN** — create `src/tune/optuna_tuner.py` |
+
+### STEP 4 — Wire into pipeline + run
+
+| Done | Task | Action |
+|------|------|--------|
+| ✅ | **T129** | Update `src/tune/run.py` to use `OptunaTuner` |
+| ✅ | T130 | Update `dvc.yaml` tune stage params |
+| ✅ | **T131** | `uv run dvc repro tune` — smoke test |
+| ✅ | **T132** | `uv run dvc repro` full pipeline — **check gates** |
+
+---
+
+### ⚖️ DECISION POINT after T132
+
+```
+eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
+        YES  →  go to STEP 9 (Register)
+        NO   →  go to STEP 5 (Model Fixes)
+```
+
+---
+
+### STEP 5 — Fix A: MLP Balanced Focal Loss *(cheapest fix — try first)*
+
+| Done | Task | Action |
+|------|------|--------|
+| 🔜 | T133a | Add `dl.focal_loss_enabled: false` + `dl.focal_loss_gamma: 2.0` to `params.yaml`; extend `DLConfig` |
+| | T133b | **RED** — `BalancedFocalLoss` tests in `tests/test_train_dl.py` |
+| | T133c | **GREEN** — add `BalancedFocalLoss` to `src/metrics.py`; wire into `DLTrainer` behind flag |
+| | T133d | Set `focal_loss_enabled: true`; `uv run dvc repro train_dl evaluate` → **check gates** |
+
+> Gates pass → STEP 9. Gates fail → STEP 6.
+
+### STEP 6 — Fix B: Cyclical KL Annealing *(VAE cascade)*
+
+| Done | Task | Action |
+|------|------|--------|
+| | T135a | Add `vae.cyclical_annealing: false` + `vae.cycle_epochs: 50` to `params.yaml`; extend `VAEConfig` |
+| | T135b | **RED** — cyclical schedule tests in `tests/test_vae_trainer.py` |
+| | T135c | **GREEN** — add cyclical branch to `DVAETrainer.train()` at `vae_trainer.py:276` |
+| | T135d | Set `cyclical_annealing: true`; `uv run dvc repro train_vae encode train_ml train_dl evaluate` → **check gates** |
+
+> Gates pass → STEP 9. Gates fail → STEP 7.
+
+### STEP 7 — Fix C: Danger Index Features *(6-stage cascade)*
+
+| Done | Task | Action |
+|------|------|--------|
+| | T123a | Leakage audit — confirm safe/unsafe columns; record in `docs/data_contract.md` |
+| | T123b | Add `features.danger_index_features: false` to `params.yaml`; extend `FeaturesConfig` |
+| | T123c | **RED** — danger index column tests in `tests/test_featurize.py` |
+| | T123d | **GREEN** — add `solo_highspeed` + `vulnerability_interaction` to `Featurizer` |
+| | T123e | `uv run dvc repro featurize train_vae encode train_ml train_dl evaluate` → **check gates** |
+
+> Gates pass → STEP 9. Gates fail → STEP 8.
+
+### STEP 8 — Fix D: XGBoost Focal Loss *(last automated resort)*
+
+| Done | Task | Action |
+|------|------|--------|
+| | T125a | Add `model.focal_loss_enabled: false` + `model.focal_loss_gamma: 2.0` to `params.yaml`; extend `ModelConfig` |
+| | T125b | **RED** — custom obj callable tests in `tests/test_train_ml.py` |
+| | T125c | **GREEN** — add `focal_loss_grad_hess()` to `src/metrics.py`; wire into `MLTrainer` |
+| | T125d | `uv run dvc repro evaluate` → **check gates** |
+
+> Gates pass → STEP 9. Gates fail → Fix E/F require constitution amendments — stop and discuss.
+
+---
+
+### STEP 9 — Register (once gates pass)
+
+| Done | Task | Action |
+|------|------|--------|
+| | T051 | `uv run dvc repro register` — `@champion` alias set; receipt written |
 
 ---
 
@@ -44,8 +146,6 @@
 | 7 | evaluate | — | tune, register |
 | 8 | tune | — | writes best params → invalidates train_vae downstream |
 | 9 | register | — | — |
-
----
 
 ---
 
@@ -87,9 +187,7 @@
 - [x] T033 Failure path — SPEEDLIMIT=500 → exit 1; expectation name in stdout
 - [x] T034 [P] Commit GE suite to git
 
-> **Loop back here if**: drift detection (Phase 7) flags a new column distribution shift that breaks the contract, or if a new data source is added.
-
----
+> **Loop back here if**: drift detection (Phase O5) flags a new column distribution shift, or if a new data source is added.
 
 ---
 
@@ -151,40 +249,124 @@
 
 ## ✅ Phase M3: ML Model Engineering — Classifiers (MLP + XGBoost)
 
-**Goal**: two competing classifiers trained on Z-space; 10 seeds each; mandatory metrics logged; visual diagnostics (confusion matrix + ROC) in MLflow.
+**Goal**: two competing classifiers trained on Z-space; 10 seeds each; mandatory metrics logged; visual diagnostics in MLflow.
 
 - [x] T114 [P] Verify `src/train_dl/` package
 - [x] T115 [P] Update `dvc.yaml` `train_dl` stage
 - [x] T116 **RED** — `tests/test_train_dl.py`
-- [x] T117 **GREEN** — `src/train_dl/trainer.py` — `ShallowMLP` + `DLTrainer`; `mlp_seed_{seed}` run names
+- [x] T117 **GREEN** — `src/train_dl/trainer.py` — `ShallowMLP` + `DLTrainer`
 - [x] T118 **GREEN** — `src/train_dl/run.py`
 - [x] T119 `dvc repro train_dl` — 10 runs in `crash-severity-dl`; `models/mlp_model.pth` written
 - [x] T120 MLflow UI — mandatory metrics + `per_class_matrix.json` + confusion matrix + ROC confirmed
-- [x] T035 **RED** — `tests/test_train_ml.py` — XGBoost on Z vectors
-- [x] T036 **GREEN** — `src/train_ml/trainer.py` — `MLTrainer`; `xgb_seed_{seed}` run names; plots via `src/plots.py`
+- [x] T035 **RED** — `tests/test_train_ml.py`
+- [x] T036 **GREEN** — `src/train_ml/trainer.py` — `MLTrainer`
 - [x] T036b **GREEN** — `src/train_ml/run.py`
 - [x] T037 `dvc repro train_ml` — 10 runs in `crash-severity-ml`; `models/best_ml_model.pkl` written
 
-**Current results (2026-04-30) — LOOP BACK TRIGGERED**:
-
-| Model | macro F1 | Fatal recall | F1 gate (>0.35) | Recall gate (>0.50) |
-|---|---|---|---|---|
-| XGBoost | 0.3636 | 0.2500 | ✅ PASS | ❌ FAIL |
-| MLP | 0.3251 | 0.5500 | ❌ FAIL | ✅ PASS |
-
-Neither model passes both gates. Root cause: `latent_dim=8` + `beta_max=0.5` creates a Z-space bottleneck (XGBoost generalisation gap = 0.278). **Katib HPO (Phase O3) will search `beta_max` + `latent_dim` to fix this.** The pipeline loops back from Operations → Model Development automatically via `params.yaml` update + `dvc repro`.
-
 ## ✅ Phase M4: Model Testing + Validation — Evaluate
 
-**Goal**: Welch's t-test on macro F1 distributions; constitutional gates enforced; winner declared. Gates will FAIL with current params — this is expected and correct; it triggers the Katib loop.
+**Goal**: Welch's t-test on macro F1 distributions; constitutional gates enforced; winner declared.
 
-- [x] T046 **RED** — Write `tests/test_evaluate.py`: mock MLflow runs (N=3 seeds each experiment); assert `evaluation_report.json` contains `winner`, `p_value`, `cohens_d`, `ml_mean_f1`, `dl_mean_f1`, `gates_passed`; assert `gates_passed=false` when winner mean F1 ≤ `macro_f1_threshold` or winner mean fatal recall ≤ `fatal_recall_threshold`; assert exit 1 when gates fail. Run — confirm FAIL.
-- [x] T047 **GREEN** — Implement `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py`: query MLflow for `eout_macro_f1` and `eout_fatal_recall` from both experiments (N=10 seeds); Welch's t-test; Cohen's d; 95% CIs; tiebreak to `ml` if p ≥ alpha; assert constitutional gates; return `EvaluationResult`. Create `src/evaluate/run.py`: write `docs/evaluation_report.json` + `docs/ab_test_comparison.json`; exit 1 if gates fail.
-- [x] T048 `dvc repro evaluate` — gates fail (expected); `evaluation_report.json` written; diagnosis confirmed.
-
-> **Loop back trigger**: gates fail here → Katib (Phase O3) searches `beta_max` + `latent_dim` → writes winners to `params.yaml` → `dvc repro` re-runs `train_vae → encode → train_ml → train_dl → evaluate` → gates should PASS after Katib.
+- [x] T046 **RED** — `tests/test_evaluate.py`
+- [x] T047 **GREEN** — `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py` + `src/evaluate/run.py`
+- [x] T048 `dvc repro evaluate` — gates fail (expected); `evaluation_report.json` written
 
 ---
+
+## 🔜 Phase M5: VAE Fatal Recall Fixes
+
+**Goal**: hit `eout_fatal_recall > 0.50`. Triggered by O3.5 Optuna HPO — if gates still fail after Optuna rewrites `params.yaml` and runs full pipeline, apply fixes below in order. Stop as soon as gates pass.
+
+**Rules**:
+- Stop as soon as gates pass — do not implement remaining fixes
+- Constitution XV: every `src/` change requires RED before GREEN
+- Constitution XIV: all flags and thresholds in `params.yaml` — no magic numbers
+
+**DVC cascade cost per fix**:
+
+| Fix | Stages invalidated |
+|---|---|
+| Fix A — MLP Focal Loss | train_dl → evaluate |
+| Fix B — Cyclical KL Annealing | train_vae → encode → train_ml → train_dl → evaluate |
+| Fix C — Danger Index Features | featurize → train_vae → encode → train_ml → train_dl → evaluate |
+| Fix D — XGBoost Focal Loss | train_ml → evaluate |
+| Fix E — Supervised Latent Loss ⛔ | train_vae → encode → train_ml → train_dl → evaluate |
+| Fix F — Tomek Links ⛔ contingency | train_ml → evaluate |
+
+---
+
+### Fix A — MLP Balanced Focal Loss
+
+*No upstream cascade — only `train_dl` reruns.*  
+*Formula*: `FL = −α_t · (1 − p_t)^γ · log(p_t)` where `α_t` = class weight, `p_t` = predicted probability for true class.
+
+- [ ] T133a [P] Add `dl.focal_loss_enabled: false` and `dl.focal_loss_gamma: 2.0` to `params.yaml`; extend `DLConfig` in `src/config.py`.
+- [ ] T133b **RED** — `tests/test_train_dl.py`: assert `BalancedFocalLoss(gamma=2.0, weight=w)(logits, targets)` returns scalar; assert focal property (confident correct loss < hard incorrect loss); assert `DLTrainer` uses `BalancedFocalLoss` when enabled, `CrossEntropyLoss` when not.
+- [ ] T133c **GREEN** — Add `BalancedFocalLoss(nn.Module)` to `src/metrics.py`: `forward` computes softmax → gather `p_t` → apply `−α_t · (1−p_t)^γ · log(p_t)` → mean. Swap into `DLTrainer._train_single_seed()` at `trainer.py:119` behind `focal_loss_enabled` flag.
+- [ ] T133d Set `dl.focal_loss_enabled: true`; `uv run dvc repro train_dl evaluate`. **Gates pass → T051. Gates fail → Fix B.**
+
+---
+
+### Fix B — Cyclical KL Annealing
+
+*Triggers VAE retrain cascade.*  
+*Schedule*: `β_t = beta_max × min(1, (epoch % cycle_epochs) / warmup_epochs)` — resets β to 0 every `cycle_epochs`.
+
+- [ ] T135a [P] Add `vae.cyclical_annealing: false` and `vae.cycle_epochs: 50` to `params.yaml`; extend `VAEConfig`.
+- [ ] T135b **RED** — `tests/test_vae_trainer.py`: assert cyclical formula gives `β=0.0` at epoch 0, `β=beta_max` at epoch `warmup_epochs`, `β=0.0` at epoch `cycle_epochs`; assert monotonic schedule unchanged when `cyclical_annealing=False`.
+- [ ] T135c **GREEN** — In `DVAETrainer.train()`, replace `beta_t` expression at `vae_trainer.py:276` with branch: cyclical formula when `cyclical_annealing=True`, existing monotonic formula otherwise.
+- [ ] T135d Set `vae.cyclical_annealing: true`; `uv run dvc repro train_vae encode train_ml train_dl evaluate`. **Gates pass → T051. Gates fail → Fix C.**
+
+---
+
+### Fix C — Danger Index Feature Engineering
+
+*Full 6-stage cascade: featurize → train_vae → encode → train_ml → train_dl → evaluate.*
+
+- [ ] T123a **Leakage Audit** — confirm `NUMOFUNINJ` is post-crash leakage (exclude); confirm `NUMOFVEHIC`, `SPEEDLIMIT`, `DRIVER1AGE` are pre-crash (safe). Record in `docs/data_contract.md`.
+- [ ] T123b [P] Add `features.danger_index_features: false` to `params.yaml`; extend `FeaturesConfig`.
+- [ ] T123c **RED** — `tests/test_featurize.py`: assert two extra columns (`solo_highspeed`, `vulnerability_interaction`) when enabled; absent when disabled; `NUMOFKILL`/`NUMOFUNINJ` never in output.
+- [ ] T123d **GREEN** — In `Featurizer`, when enabled, compute before `ColumnTransformer` fit:
+  - `solo_highspeed = ((NUMOFVEHIC == 1) & (SPEEDLIMIT >= 45)).astype(int)`
+  - `vulnerability_interaction = (((DRIVER1AGE < 25) | (DRIVER1AGE > 70)) & (SPEEDLIMIT > 40)).astype(int)`
+- [ ] T123e `uv run dvc repro featurize train_vae encode train_ml train_dl evaluate`. **Gates pass → T051. Gates fail → Fix D.**
+
+---
+
+### Fix D — XGBoost Balanced Focal Loss (Last Resort)
+
+*Requires custom gradient/hessian derivation for XGBoost. High regression risk.*
+
+- [ ] T125a [P] Add `model.focal_loss_enabled: false` and `model.focal_loss_gamma: 2.0` to `params.yaml`; extend `ModelConfig`.
+- [ ] T125b **RED** — `tests/test_train_ml.py`: assert `MLTrainer` passes custom `obj` callable when enabled; assert callable returns `(grad, hess)` both shape `(N,)` for dummy `(N, 3)` probability array.
+- [ ] T125c **GREEN** — Add `focal_loss_grad_hess(y_true_onehot, y_pred_proba, alpha, gamma) → (grad, hess)` to `src/metrics.py`; wire into `MLTrainer._train_single_seed()` behind flag; switch `eval_metric` to `merror`.
+- [ ] T125d `uv run dvc repro evaluate`. **Gates pass → T051. Gates fail → Fix E.**
+
+---
+
+### Fix E — Supervised Latent Loss ⛔ BLOCKED — Constitution II Amendment Required
+
+*Do NOT write implementation code until T136 amendment is accepted.*
+
+**Conflict**: VAE trains unsupervised on `X_all` (no labels). `L_CE` requires labels. Using val/test labels in VAE training violates constitution II. Proposed scope: `L_CE` on `X_train` rows only.
+
+- [ ] T136 **Amendment** — Draft constitution II scoped exception in `.specify/memory/constitution.md` (v3.5.0): VAE may accept `y_train` for `L_CE` on `X_train` rows only; val/test rows remain unsupervised; add `gamma` to Optuna search space. Update `CLAUDE.md`. **Gate: do not proceed to T137a until accepted.**
+- [ ] T137a [P] Add `vae.supervised_latent_loss: false` and `vae.gamma: 0.1` to `params.yaml`; extend `VAEConfig`; add `gamma` to `tune.optuna.search_space`.
+- [ ] T137b **RED** — `tests/test_vae_trainer.py`: assert `L_CE` computed only on X_train rows; assert total loss = `L_rec + β·L_KL + γ·L_CE`; assert `y_all=None` still works when disabled.
+- [ ] T137c **GREEN** — In `DVAETrainer.train()`: attach `nn.Linear(latent_dim, 3)` classification head; compute `L_CE` on X_train batches only; add `γ·L_CE` to total loss; log `vae_ce_loss` per epoch.
+- [ ] T137d `uv run dvc repro train_vae encode train_ml train_dl evaluate`. **Gates pass → T051. Gates fail → Fix F (contingency).**
+
+---
+
+### Fix F — Tomek Link Cleaning ⛔ Contingency — Constitution III Amendment Required
+
+*Only if all Fixes A–E exhausted. Most effective after upstream fixes have improved Z-space quality (active dims ≥ 3/8).*
+
+- [ ] T138 **Amendment** — Draft constitution III amendment in `.specify/memory/constitution.md` (v3.6.0): add boundary-sharpening undersampling in Z-space as fourth permitted mechanism, contingent on ≥ 3/8 active dims in MLflow VAE audit. **Gate: do not proceed to T124a until accepted.**
+- [ ] T124a [P] `uv add imbalanced-learn`.
+- [ ] T124b **RED** — `tests/test_train_ml.py`: assert `TomekLinks().fit_resample(Z_train, y_train)` called before `clf.fit()`; cleaned arrays passed to classifier; `Z_val`/`Z_test` never resampled.
+- [ ] T124c **GREEN** — In `MLTrainer._train_single_seed()`, before `clf.fit()`: `Z_tr, y_tr = TomekLinks().fit_resample(Z_train, y_train)`. Do NOT use `imblearn.Pipeline` — incompatible with XGBoost `eval_set`.
+- [ ] T124d `uv run dvc repro evaluate`. **Gates pass → T051. Gates fail → no further automated fixes; escalate to new data acquisition.**
 
 ---
 
@@ -194,72 +376,136 @@ Neither model passes both gates. Root cause: `latent_dim=8` + `beta_max=0.5` cre
 
 ---
 
-## ✅ Phase O1: ML Model Deployment — Register (TDD only)
+## ✅ Phase O1: Register (TDD — deferred run)
 
-**Goal**: register stage implemented and tested; `dvc repro register` deferred until gates pass (post-Katib T060).
+- [x] T049 **RED** — `tests/test_register.py`
+- [x] T050 **GREEN** — `ModelRegistrar.register()` + `src/register/run.py`
 
-- [x] T049 **RED** — Write `tests/test_register.py`: assert with `gates_passed=true` → exit 0, `@champion` alias set, `registry_receipt.json` written; assert with `gates_passed=false` → exit 1, no registry mutation. Run — confirm FAIL.
-- [x] T050 **GREEN** — Implement `ModelRegistrar.register()` in `src/register/registrar.py`; create `src/register/run.py`. **Inference path**: registered `mlflow.pyfunc` bundles `vae_encoder.pth` + champion classifier — `model.predict(X_raw)` runs `LatentEncoder → classifier` internally.
+> `dvc repro register` (T051) deferred until gates pass.
 
-> T051 (`dvc repro register`) deferred to Phase O3 — requires `gates_passed=true` which only holds after the Katib loop rewrites `params.yaml` and `dvc repro` re-runs the pipeline.
+## ✅ Phase O2: Docker + Kubernetes
 
-## 🔜 Phase O2: CI/CD — Docker + Kubernetes Setup
+- [x] T066 Create `docker/Dockerfile`
+- [x] T067 Build + smoke-test Docker image
+- [x] T068 Enable Kubernetes in Docker Desktop
+- [x] T069 Create `k8s/pvc.yaml` — hostPath PVC at `/app`
+- [x] T070 Install KFP v2.0.5-pns + Katib v0.17.0; verify all pods running
 
-**Goal**: container image built; local Kubernetes cluster running; shared PVC mounted. Required before Katib trial pods can execute.
+## ✅ Phase O3: Katib HPO (Portfolio Reference)
 
-- [x] T066 Create `docker/Dockerfile`: `FROM python:3.12-slim`; install `uv`; `uv sync --frozen`; copy `src/`, `dvc.yaml`, `params.yaml`, `great_expectations/gx/`; `ENV PYTHONPATH=/app`. Do NOT copy `mlruns/`, `data/`, `models/` — these come from PVC mount.
-- [x] T067 Build + smoke-test: `docker build -f docker/Dockerfile -t mlops-portfolio:latest .`; `docker run --rm -v $(pwd)/data:/app/data mlops-portfolio:latest python -m src.ingest.run` → exit 0.
-- [x] T068 Enable Kubernetes in Docker Desktop; verify with `kubectl cluster-info`.
-- [x] T069 Create `k8s/pvc.yaml`: hostPath PV + PVC mounting project root at `/app`; apply with `kubectl apply -f k8s/pvc.yaml`.
-- [x] T070 Install KFP standalone + Katib operator; wait for pods ready; `kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8888:80`. **Note**: KFP v2.0.5-pns installed; ml-pipeline API + Argo + Minio + MySQL all running; Katib v0.17.0 fully installed (all 4 pods running); port-forward verified with Katib UI on 8080; ml-pipeline-ui web frontend has ImagePullBackOff (deprecated GCR tags) but KFP API fully functional for programmatic submission.
+**Katib remains part of the operational stack** — the CRD, trial script, and `HyperparamTuner` are kept as a portfolio demonstration of Kubernetes-native HPO. Replaced by Optuna as the *active* search engine (Phase O3.5) due to skopt crashes and pod scheduling overhead on a single-machine setup.
 
-## 🔜 Phase O3: CI/CD — Katib HPO (VAE Representation Fix)
+**Outcome**: 9/15 trials completed; best `beta_max=0.2`, `latent_dim=32`; fatal recall stuck at 0.25 → triggered Phase M5 fix plan.
 
-**Goal**: Katib searches `beta_max` + `latent_dim` jointly; fitness signal penalises failed recall gate; best params written to `params.yaml`; DVC automatically re-runs full pipeline with winner values. This is the **automated loop back** from Operations → Model Development.
+- [x] T052 [P] Add `kubernetes>=28.0` to `pyproject.toml`
+- [x] T053 [P] Create `k8s/katib/vae_experiment.yaml` — Experiment CRD; skopt algorithm; 15 trials
+- [x] T056 **RED + GREEN** — `src/tune/trial.py` — shared trial logic used by both Katib and Optuna
+- [x] T057 **RED** — `tests/test_tune.py`
+- [x] T058 **GREEN** — `HyperparamTuner.tune()` in `src/tune/tuner.py` + `src/tune/run.py`
+- [x] T059 `dvc repro tune` — Katib experiment completed; best params written to `params.yaml`
+- [x] T060 `dvc repro` (full) — gates still FAIL; fatal_recall=0.25 → proceed to O3.5 + M5
 
-**Search space**:
-- `beta_max`: `[0.05, 0.1, 0.2, 0.5, 1.0]` — lower KL penalty; encoder retains discriminative structure
-- `latent_dim`: `[8, 16, 32]` — wider bottleneck preserves more feature interactions
+## 🔜 Phase O3.5: Optuna HPO (Active Search Engine)
 
-**Fitness**: `val_fitness = val_macro_f1 * (1.0 if val_fatal_recall >= 0.50 else 0.5)` — evaluated on Z_val (constitution II).
+**Goal**: replace Katib as the active `tune` stage engine. Expanded 5-param continuous search + MedianPruner on per-epoch ELBO. `HyperparamTuner` and `k8s/katib/` kept — do not delete.
 
-- [x] T052 [P] Add `kubernetes>=28.0` to `pyproject.toml`; run `uv sync`.
-- [x] T053 [P] Create `k8s/katib/vae_experiment.yaml`: Katib `Experiment` CRD; objective `val_fitness` (maximize); algorithm `bayesianoptimization`; `maxTrialCount: 15`, `parallelTrialCount: 1`; parameters: `beta_max` list `[0.05, 0.1, 0.2, 0.5, 1.0]` and `latent_dim` list `[8, 16, 32]`; trialTemplate: `python -m src.tune.trial --beta_max={{.HyperParameters.beta_max}} --latent_dim={{.HyperParameters.latent_dim}} --winner={{winner}}`; metrics collector reads `val_fitness=` from stdout.
-- [x] T056 **RED + GREEN** — Create `src/tune/trial.py`: accepts `--beta_max`, `--latent_dim`, `--winner`; loads X/y splits from PVC; trains VAE with candidate params; encodes all splits; trains winner classifier (seed=0); evaluates on Z_val; computes `val_fitness`; logs to MLflow `crash-severity-tune` tagged `beta_max`, `latent_dim`, `winner`, `trial_type=katib`; prints `val_fitness=<float>` on last stdout line; exits 0.
-- [x] T057 **RED** — Write `tests/test_tune.py`: mock Kubernetes client; assert `HyperparamTuner.tune()` submits Experiment; reads `currentOptimalTrial.parameterAssignments` for `beta_max` and `latent_dim`; assert `params.yaml` updated with both values. Run — confirm FAIL.
-- [x] T058 **GREEN** — Implement `HyperparamTuner.tune()` in `src/tune/tuner.py`: load CRD yaml; inject winner; submit via `CustomObjectsApi`; poll until Succeeded/Failed; extract `beta_max` + `latent_dim`; return `TuneResult`. Create `src/tune/run.py`: write `tune.best_params.beta_max` and `tune.best_params.latent_dim` to `params.yaml`; exit 0.
-- [ ] T059 `dvc repro tune` — Katib Experiment in Katib UI; 15 MLflow runs in `crash-severity-tune`; `params.yaml` has both best params set.
-- [ ] T060 `dvc repro` (full) — DVC detects `params.yaml` change → re-runs `train_vae → encode → train_ml → train_dl → evaluate`; constitution VI gates expected to **PASS**.
-- [ ] T051 `dvc repro register` — gates now pass; `@champion` alias set; `mlflow.pyfunc.load_model("models:/crash-severity@champion")` loads; `model.predict(Z_test[:5])` returns shape `(5,)` with values in `{0, 1, 2}`.
+**Why Optuna alongside Katib**:
+- Katib: Kubernetes-native, distributed-ready, portfolio demonstration ✅ done
+- Optuna: local rapid iteration, continuous search space, pruning, no pod scheduling overhead
+
+**Search space** (bounds in `params.yaml` under `tune.optuna.search_space`):
+
+| Param | Sampler | Range |
+|---|---|---|
+| `beta_max` | log-uniform | [0.01, 1.0] |
+| `latent_dim` | categorical | {8, 16, 32, 64} |
+| `warmup_epochs` | int | [5, 30] |
+| `lr` | log-uniform | [1e-4, 1e-3] |
+| `dropout_p` | uniform | [0.05, 0.30] |
+
+**Fitness**: `val_fitness = val_macro_f1 × (1.0 if val_fatal_recall ≥ 0.50 else 0.5)`  
+**dl.input_dim sync**: when Optuna writes `vae.latent_dim`, it must also write `dl.input_dim = latent_dim`.  
+**Data paths**: `_objective` loads featurized X arrays — not Z vectors — because each trial retrains VAE from scratch.
+
+### O3.5a — Config Scaffold
+
+- [x] T126a [P] `uv add optuna`; run `uv sync`.
+- [x] T126b [P] Add `tune.optuna.*` section to `params.yaml`:
+  ```yaml
+  optuna:
+    n_trials: 30
+    study_name: vae-optuna-hpo
+    direction: maximize
+    pruner:
+      n_startup_trials: 5
+      n_warmup_steps: 15
+    search_space:
+      beta_max_low: 0.01
+      beta_max_high: 1.0
+      latent_dim_choices: [8, 16, 32, 64]
+      warmup_epochs_low: 5
+      warmup_epochs_high: 30
+      lr_low: 0.0001
+      lr_high: 0.001
+      dropout_p_low: 0.05
+      dropout_p_high: 0.30
+  ```
+- [x] T126c [P] Add `OptunaConfig` dataclass to `src/config.py`; add `optuna: OptunaConfig` field to `TuneConfig`.
+
+### O3.5b — DVAETrainer Pruning Hook (TDD)
+
+- [x] T127a **RED** — `tests/test_vae_trainer.py`: assert `DVAETrainer.train()` accepts optional `optuna_trial=None`; when `optuna_trial.should_prune()` returns `True` after epoch 1, assert `train()` raises `optuna.TrialPruned`; assert `optuna_trial.report(elbo, epoch)` called; assert `optuna_trial=None` completes normally.
+- [x] T127b **GREEN** — In `DVAETrainer.train()`, after each epoch ELBO: if `optuna_trial is not None`, call `optuna_trial.report(elbo, epoch)`; if `optuna_trial.should_prune()`: raise `optuna.TrialPruned()`. Default `optuna_trial=None` — existing callers unaffected.
+
+### O3.5c — OptunaTuner Class (TDD)
+
+- [x] T128a **RED** — `tests/test_optuna_tuner.py`: patch `DVAETrainer`, `LatentEncoder`, `MLTrainer` to return fixture metrics; assert `OptunaTuner(...).tune()` returns `TuneResult` with all 5 param keys; assert `latent_dim` ∈ `{8, 16, 32, 64}`; assert `n_trials` matches config; assert `TrialPruned` inside `_objective` is caught as pruned (not crashed).
+- [x] T128b **GREEN** — Create `src/tune/optuna_tuner.py`:
+  - `__init__`: stores config; loads featurized X arrays (`X_train_augmented`, `X_val`, `X_test`, `y_train_aug`) at construction.
+  - `_objective(trial)`: suggest 5 params → clone `VAEConfig` → `DVAETrainer(..., optuna_trial=trial).train()` → `LatentEncoder.encode()` → `MLTrainer(seeds=[0]).train()` → compute `val_fitness` → log to MLflow nested run tagged `trial_type=optuna` → return `val_fitness`.
+  - `tune()`: `optuna.create_study(TPESampler, MedianPruner)` → `study.optimize` → return `TuneResult`.
+
+### O3.5d — Wire into DVC + Run
+
+- [ ] T129 [P] Update `src/tune/run.py`: import `OptunaTuner` alongside `HyperparamTuner` (keep both); use `OptunaTuner`; write all 5 best params + `dl.input_dim` to `params.yaml`.
+- [ ] T130 [P] Update `dvc.yaml` tune stage `params:` list — add `tune.optuna.*` keys.
+- [ ] T131 `uv run dvc repro tune` — study runs `n_trials`; MLflow shows runs tagged `trial_type=optuna`; `params.yaml` updated.
+- [ ] T132 `uv run dvc repro` (full downstream) — inspect `docs/evaluation_report.json`. **Gates pass → T051. Gates fail → M5 fixes.**
+
+---
+
+### Gate: Register
+
+- [ ] T051 `uv run dvc repro register` — prerequisite: gates passed from O3.5 or any M5 fix; `@champion` alias set; `mlflow.pyfunc.load_model("models:/crash-severity@champion")` loads; `model.predict(Z_test[:5])` returns shape `(5,)` with values in `{0, 1, 2}`.
+
+---
 
 ## 🔜 Phase O4: CI/CD — KFP 10-Stage Pipeline
 
-**Goal**: full pipeline compiled to `pipeline.yaml`; runs end-to-end on Docker Desktop Kubernetes via KFP UI.
+**Goal**: full pipeline compiled to `pipeline.yaml`; runs end-to-end on Docker Desktop Kubernetes.
 
-- [ ] T071 Rewrite `pipelines/kubeflow/pipeline.py` with 10 `@dsl.component` functions — one per stage — each calling `subprocess.run(["dvc", "repro", "<stage>"], cwd="/app")`; mount PVC at `/app`; wire: `validate >> ingest >> featurize`; then `featurize >> train_vae` and `featurize >> augment` (parallel); then `train_vae + augment >> encode`; then `encode >> train_ml` and `encode >> train_dl` (parallel); then `train_ml + train_dl >> evaluate >> tune >> register`; compile to `pipeline.yaml`.
+- [ ] T071 Rewrite `pipelines/kubeflow/pipeline.py` with 10 `@dsl.component` functions — one per stage — each calling `subprocess.run(["dvc", "repro", "<stage>"], cwd="/app")`; mount PVC at `/app`; compile to `pipeline.yaml`.
 - [ ] T072 `uv run python pipelines/kubeflow/pipeline.py` → `pipeline.yaml` created.
 - [ ] T073 Upload to KFP UI; start run; confirm all 10 steps with correct dependency arrows.
 - [ ] T074 Inspect pod logs — `train_vae` ELBO visible; `train_ml` run tagged `orchestrator=kubeflow`.
 
 ## 🔜 Phase O5: Monitoring — Latent Space Drift Detection
 
-**Goal**: production drift detected by comparing new-batch Z vectors against training reference distribution. Advisory signal — does not halt pipeline. Triggers loop back to Design if persistent.
+**Goal**: production drift detected via MMD on Z vectors. Advisory signal — does not halt pipeline.
 
-- [ ] T096 Extend `train_vae` to save drift reference: encode full `X_train` after training → compute per-dim μ_mean + μ_std → save `models/drift_reference.npz`; add to `dvc.yaml` outs; add `drift.*` to `params.yaml` and `DriftConfig` to `src/config.py`.
-- [ ] T097 Create `src/drift/detector.py`: `DriftResult(elbo_score, mmd_score, is_drifted, n_samples)`; `DriftDetector.detect(X_new) → DriftResult`; MMD with RBF kernel (`bandwidth=1.0`).
-- [ ] T098 Extend `src/encode/run.py`: call `DriftDetector.detect(X_all)`; log `drift_elbo`, `drift_mmd`, `drift_detected` to MLflow; write `docs/drift_report.json`; print `[WARN] DRIFT DETECTED` if flagged; exit 0 always.
-- [ ] T099 `dvc repro encode` → `drift_report.json` written; `is_drifted=false` on training data (self-reference).
+- [ ] T096 Extend `train_vae` to save drift reference: `models/drift_reference.npz`; add to `dvc.yaml`; add `DriftConfig` to `src/config.py`.
+- [ ] T097 Create `src/drift/detector.py` — `DriftDetector.detect(X_new) → DriftResult`; MMD with RBF kernel.
+- [ ] T098 Extend `src/encode/run.py`: call `DriftDetector`; log `drift_elbo`, `drift_mmd`, `drift_detected`; write `docs/drift_report.json`; exit 0 always.
+- [ ] T099 `uv run dvc repro encode` → `drift_report.json` written; `is_drifted=false` on training data.
 
-> **Loop back here if**: `is_drifted=true` on new production data → revisit data contract (Phase D2) and featurize (Phase M1).
+> **Loop back here if**: `is_drifted=true` on production data → revisit data contract (D2) and featurize (M1).
 
 ## 🔜 Phase O6: Polish + Final Validation
 
-**Goal**: all constitutional gates verified end-to-end; full reproducibility confirmed; documentation updated.
-
-- [ ] T075 [P] Assert constitutional gates on `docs/evaluation_report.json`: macro F1 > 0.35, fatal recall > 0.50.
-- [ ] T076 [P] Update `CLAUDE.md`: architecture table, pipeline description, DL/MLP section, featurize section.
-- [ ] T077 [P] Update `.gitignore`: `Z_*.npy`, `y_train_augmented.npy`, `vae_*.pth`, `registry_receipt.json`.
-- [ ] T078 Commit all tracked files: `dvc.yaml`, `params.yaml`, `src/`, GE suite, `pipeline.py`, `Dockerfile`, `k8s/`.
+- [ ] T075 [P] Assert constitutional gates on `docs/evaluation_report.json`.
+- [ ] T076 [P] Update `CLAUDE.md` — architecture table, pipeline description.
+- [ ] T077 [P] Update `.gitignore`.
+- [ ] T078 Commit all tracked files.
 - [ ] T079 [P] Full reproducibility smoke test: delete `data/processed/` + `models/`; `dvc pull && dvc repro` → all 10 stages complete.
 - [ ] T080 [P] Remove `apache-airflow` from `pyproject.toml` if present; `uv sync`.
 
@@ -269,7 +515,6 @@ Neither model passes both gates. Root cause: `latent_dim=8` + `beta_max=0.5` cre
 
 | Trigger | Loop back to | Mechanism |
 |---|---|---|
-| evaluate gates FAIL | Model Development (M2) | Katib writes `beta_max` + `latent_dim` to `params.yaml` → `dvc repro` re-runs VAE → encode → classify → evaluate |
+| evaluate gates FAIL | O3.5 + M5 | Optuna writes best params → `dvc repro` re-runs VAE → encode → classify → evaluate; if still failing, M5 fixes applied in order |
 | Drift detected (O5) | Design (D2) | Review data contract; update GE suite; re-featurize |
 | New data source | Design (D1 + D2) | Update spec; extend data contract; re-run full pipeline |
-| Fatal recall < 0.50 post-Katib | Model Development (M3) | Consider threshold calibration in evaluate; widen MLP hidden layer |

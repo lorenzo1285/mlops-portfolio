@@ -136,7 +136,8 @@ class DLTrainer:
             shuffle=False,
         )
 
-        with mlflow.start_run(run_name=f"mlp_seed_{seed}") as run:
+        active_run = mlflow.active_run()
+        with mlflow.start_run(run_name=f"mlp_seed_{seed}", nested=active_run is not None) as run:
             mlflow.log_params({
                 "seed": seed,
                 "input_dim": self._dl_config.input_dim,

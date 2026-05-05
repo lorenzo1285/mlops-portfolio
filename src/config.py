@@ -34,6 +34,7 @@ class ModelConfig:
     n_select: int
     macro_f1_threshold: float
     fatal_recall_threshold: float
+    fatal_threshold: float = 0.5
 
 
 @dataclass
@@ -98,11 +99,40 @@ class ABTestConfig:
 
 
 @dataclass
+class OptunaSearchSpace:
+    beta_max_low: float
+    beta_max_high: float
+    latent_dim_choices: list[int]
+    warmup_epochs_low: int
+    warmup_epochs_high: int
+    lr_low: float
+    lr_high: float
+    dropout_p_low: float
+    dropout_p_high: float
+
+
+@dataclass
+class OptunaPrunerConfig:
+    n_startup_trials: int = 5
+    n_warmup_steps: int = 15
+
+
+@dataclass
+class OptunaConfig:
+    n_trials: int
+    study_name: str
+    direction: str
+    pruner: OptunaPrunerConfig
+    search_space: OptunaSearchSpace
+
+
+@dataclass
 class TuneConfig:
     experiment_name: str
     max_trials: int
     namespace: str
     max_dl_trial_epochs: int = 50
+    optuna: OptunaConfig | None = None
 
 
 @dataclass
@@ -150,6 +180,20 @@ class ProjectConfig:
     validation: ValidationConfig = field(default_factory=ValidationConfig)
 
 
+def _load_tune_config(raw_tune: dict[str, Any]) -> TuneConfig:
+    optuna_raw = raw_tune.pop("optuna", None)
+    optuna: OptunaConfig | None = None
+    if optuna_raw is not None:
+        pruner_raw = optuna_raw.pop("pruner", {})
+        search_raw = optuna_raw.pop("search_space", {})
+        optuna = OptunaConfig(
+            pruner=OptunaPrunerConfig(**pruner_raw),
+            search_space=OptunaSearchSpace(**search_raw),
+            **optuna_raw,
+        )
+    return TuneConfig(**raw_tune, optuna=optuna)
+
+
 def load_config(path: str | None = None) -> ProjectConfig:
     path = path or os.getenv("PARAMS_PATH", "params.yaml")
     with open(path) as f:
@@ -173,7 +217,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
             **raw.get("feature_selection", {})
         ),
         ab_test=ABTestConfig(**raw["ab_test"]),
-        tune=TuneConfig(**raw["tune"]),
+        tune=_load_tune_config(raw["tune"]),
         great_expectations=GreatExpectationsConfig(**raw["great_expectations"]),
         validation=ValidationConfig(
             columns={

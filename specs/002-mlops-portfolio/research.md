@@ -512,3 +512,114 @@ no active `crash_ml_pipeline.py` DAG is created or maintained.
 
 **Impact on constitution**: Principle IX amended from "parity: Airflow and Kubeflow"
 to "KFP-only" in constitution v3.0.0 (2026-04-26).
+
+---
+
+## Decision 16: Fix B Revert — target_fatal_ratio 0.15 → 0.05 (2026-05-04)
+
+**Decision**: Revert `augment.target_fatal_ratio` from 0.15 back to 0.05.
+
+**Rationale**: Increasing the ratio to 0.15 generated 7,794 synthetic Fatal rows but produced no recall lift on the test set. The root cause is that 97.3% of training Fatals are CTGAN synthetics generated from only 63 real Fatal rows. At ratio=0.15, real Fatals account for 0.8% of augmented Fatal rows — the additional synthetics add volume but not new information. Worse, the train/val prior mismatch grew from 34.8× (at 0.05) to 107× (at 0.15): the model trains on 15% Fatal but sees 0.14% Fatal at inference. The threshold correction τ=0.17 partially compensates but cannot bridge a 107× prior gap reliably across val and test. Keeping ratio=0.05 limits synthetic noise while maintaining the threshold calibration.
+
+**Alternatives considered**:
+- Keep 0.15 and tune threshold harder: Prior mismatch too large; threshold overfits to val distribution at τ=0.17 but doesn't generalise to test. Not chosen.
+- Increase further to 0.30: Amplifies the same problem; synthetics from 63 rows become increasingly redundant. Not chosen.
+
+---
+
+## Decision 17: Replace Katib with Optuna as Active HPO Engine (2026-05-04)
+
+**Decision**: Replace `HyperparamTuner` (Katib) as the active DVC `tune` stage engine with `OptunaTuner` (Optuna). Keep Katib code and CRD YAML in place as portfolio reference.
+
+**Rationale**:
+- **Katib crash**: skopt sampler exhausted diversity in the small categorical space (`latent_dim ∈ {8, 16, 32}`) and crashed at 9/15 trials with `maxFailedTrialCount`. This is a known skopt limitation with small categorical sets.
+- **Pod overhead**: Each Katib trial launches a Kubernetes pod — scheduling latency dominates trial time on a single-machine setup. Trials run serially regardless, so parallelism benefit is zero.
+- **Search space rigidity**: Adding new search parameters (warmup_epochs, lr, dropout_p) requires editing the Katib Experiment CRD YAML; Optuna adds them in Python.
+- **Pruning**: Optuna's `MedianPruner` can kill bad VAE trials after warmup (≈50 epochs) instead of waiting 200 epochs — 3–4× trial throughput.
+- **Portfolio breadth**: T059 already demonstrates Katib end-to-end. Optuna as the active engine adds a second, complementary HPO tool (local rapid iteration vs. Kubernetes-native distributed search).
+
+**Expanded search space** (vs. Katib's 2 discrete params):
+| Param | Katib | Optuna |
+|---|---|---|
+| beta_max | categorical {0.05, 0.1, 0.2, 0.5, 1.0} | log-uniform [0.01, 1.0] |
+| latent_dim | categorical {8, 16, 32} | categorical {8, 16, 32, 64} |
+| warmup_epochs | — | int [5, 30] |
+| lr | — | log-uniform [1e-4, 1e-3] |
+| dropout_p | — | uniform [0.05, 0.30] |
+
+**Fitness** (unchanged): `val_fitness = val_macro_f1 × (1.0 if val_fatal_recall ≥ 0.50 else 0.5)`
+
+**dl.input_dim sync rule**: when Optuna writes `vae.latent_dim` to `params.yaml`, `dl.input_dim` must be updated to the same value so `DLTrainer`'s first linear layer matches Z-space dimensionality.
+
+**Alternatives considered**:
+- Fix Katib skopt by switching to `random` algorithm: Simpler fix but loses Bayesian guidance and doesn't solve pod overhead or search space rigidity. Not chosen.
+- Ray Tune: Distributed HPO with pruning; heavier dependency than Optuna for this use case. Not chosen.
+
+**Tasks**: T126a–T132 (Phase O3.6).
+
+---
+
+## Decision 18: MLP Balanced Focal Loss — DLTrainer Only (2026-05-04)
+
+**Decision**: Implement `BalancedFocalLoss` for the MLP (`DLTrainer`) only. Do not implement focal loss for XGBoost at this stage (deferred to T125 as last resort).
+
+**Loss formula**: `FL = −α_t · (1 − p_t)^γ · log(p_t)`
+- `α_t`: per-class weight from existing `compute_class_weights()` — already live in both trainers
+- `p_t`: softmax probability for the true class
+- `γ`: focusing parameter; `γ=2.0` default (tunable via `params.yaml dl.focal_loss_gamma`)
+
+**Rationale**: The MLP path makes focal loss straightforward — `nn.CrossEntropyLoss(weight=...)` at `trainer.py:119` is a single-line replacement. The `BalancedFocalLoss` class goes in `src/metrics.py` (shared module) and is gated by `dl.focal_loss_enabled: false` so the existing pipeline is unaffected by default. No upstream DVC cascade — only `train_dl` reruns.
+
+XGBoost focal loss (T125) requires deriving multiclass gradient and hessian tensors manually — non-trivial math with regression risk if hessians are wrong. Deferred until MLP focal + other lower-complexity fixes are exhausted.
+
+**Constitutional**: γ modulation enhances the existing class-weight mechanism (constitution III mechanism #1). It is not a fourth independent imbalance mechanism.
+
+**Alternatives considered**:
+- Implement for both MLP and XGBoost simultaneously: Doubles implementation risk; XGBoost path is genuinely high complexity. Not chosen.
+- Use `torchvision.ops.sigmoid_focal_loss`: Binary focal loss only — not applicable to 3-class softmax. Not chosen.
+
+**Tasks**: T133a–d (Phase O3.5 Step 1.5).
+
+---
+
+## Decision 19: Cyclical KL Annealing as VAE Schedule Upgrade (2026-05-04)
+
+**Decision**: Add cyclical KL annealing as an optional upgrade to the existing monotonic β schedule in `DVAETrainer`, gated by `vae.cyclical_annealing: false`.
+
+**Schedule**: `β_t = beta_max × min(1, (epoch % cycle_epochs) / warmup_epochs)`
+
+Each cycle of `cycle_epochs` epochs resets β to 0, forcing the encoder to escape posterior collapse and explore discriminative structure repeatedly. After `warmup_epochs` steps within each cycle, β reaches `beta_max` and stays there until the next reset.
+
+**Rationale** (Fu et al., 2019): Monotonic annealing reaches `beta_max` once and stays there. The encoder can get trapped in a local minimum where it ignores latent dimensions that are informative for rare classes (Fatal) because the PDO reconstruction gradient dominates. Cyclical resets periodically reopen the latent bottleneck, giving the encoder repeated chances to find Fatal-discriminative dimensions. Current state: 1/8 dims separate Fatal from PDO — cyclical annealing may increase this.
+
+**Implementation**: single branch in `DVAETrainer.train()` at `vae_trainer.py:276`. Default `False` — existing monotonic schedule unchanged for all current callers.
+
+**Constitutional**: upgrade to existing mechanism #3 (KL annealing). Not a fourth imbalance mechanism.
+
+**Alternatives considered**:
+- Monotonic with higher beta_max: Optuna already searches this. Not chosen as a standalone fix.
+- Cyclical with fixed period: Less flexible than parameterising `cycle_epochs`. Not chosen.
+
+**Tasks**: T135a–d (Phase O3.5 Step 2.5).
+
+---
+
+## Decision 20: Tomek Links Blocked — Constitution III (2026-05-04)
+
+**Decision**: Do not implement Tomek Link cleaning on Z-space. Task T124a–d remains in the plan but is marked ⛔ BLOCKED pending a formal constitution III amendment.
+
+**Rationale**: Constitution III (v3.3.0) permits exactly three complementary imbalance mechanisms: (1) runtime-computed class weights, (2) CTGAN augmentation, (3) KL annealing. Tomek Links is an undersampling technique that modifies the training distribution at the classifier stage — it is a fourth independent mechanism, regardless of whether it is applied in X-space or Z-space. Implementing it without an amendment would silently violate the constitution.
+
+**Path to unblocking**: draft a constitution III amendment that either (a) explicitly adds boundary-sharpening undersampling as a permitted fourth mechanism, or (b) reframes Tomek as a data cleaning step rather than an imbalance mechanism and argues it falls outside III's scope.
+
+---
+
+## Decision 21: Fix D (Supervised Latent Loss) Blocked — Constitution II (2026-05-04)
+
+**Decision**: Do not implement Fix D until a constitution II amendment is written and accepted (T136). Implementation tasks T137a–d exist but are blocked.
+
+**What Fix D does**: Adds a cross-entropy classification branch to the VAE ELBO — `L_total = L_rec + β·L_KL + γ·L_CE` — using a linear classification head `nn.Linear(latent_dim, 3)` attached to the encoder output. Forces the encoder to preserve discriminative class structure in Z-space, expected to increase Fatal-PDO separation beyond current 1/8 active dims.
+
+**Constitution II conflict**: The VAE trains unsupervised on `X_all = concat(X_train, X_val, X_test)` — no labels (CLAUDE.md: "Trains unsupervised on X_all — no labels"). `L_CE` requires class labels during the training forward pass. Using val or test labels in the VAE loop violates constitution II (test strictly reserved for final A/B evaluation; val used only for HPO fitness).
+
+**Proposed amendment path** (T136): Scope the exception — VAE may accept `y_train` labels for `L_CE` on `X_train` rows only. `X_val` and `X_test` rows in `X_all` remain unsupervised. This requires either (a) separating `X_train` from `X_val`/`X_test` in the DataLoader so labels are never passed for val/test batches, or (b) a two-phase approach: unsupervised pre-train on `X_all`, then supervised fine-tune on `X_train` only. The amendment must also add `gamma` to the Optuna search space.
