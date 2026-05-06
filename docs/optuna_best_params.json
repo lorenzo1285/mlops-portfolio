@@ -1,10 +1,12 @@
 {
-  "beta_max": 0.15930522616241014,
-  "latent_dim": 32,
-  "warmup_epochs": 10,
-  "lr": 0.0001519934830130982,
-  "dropout_p": 0.09585112746335846,
-  "val_fitness": 0.36228373780174716,
+  "beta_max": 0.17577012339291243,
+  "latent_dim": 16,
+  "warmup_epochs": 29,
+  "lr": 0.0007044550797720336,
+  "dropout_p": 0.2154425536543242,
+  "target_fatal_ratio": 0.1,
+  "val_fitness": 0.3496883427438502,
   "n_trials": 30,
-  "winner": "ml"
+  "winner": "ml",
+  "recall_gate": 0.35
 }

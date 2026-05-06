@@ -9,7 +9,7 @@ stages:
       size: 107949687
     - path: great_expectations/gx/great_expectations.yml
       hash: md5
-      md5: 02b173280ba2ec0a07cdb96e7c3e9082
+      md5: e025fc11d1eac934ee3701fdad69d98a
       size: 3973
     - path: src/validate/run.py
       hash: md5
@@ -346,8 +346,8 @@ stages:
       size: 107591014
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/featurize/featurizer.py
       hash: md5
       md5: 80ba2cbec34040e54f89db2303f77e2e
@@ -466,7 +466,7 @@ stages:
       size: 3567008
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 5cdf60454c95a3cb75650f82f725eef3
+      md5: 8652747cb2ed2233a8fa0202086c55d5
       size: 11872688
     - path: data/processed/X_val.npy
       hash: md5
@@ -478,8 +478,8 @@ stages:
       size: 395880
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/train_vae/run.py
       hash: md5
       md5: 9556d54517a4cb184b6036f4bd7c4d30
@@ -492,28 +492,28 @@ stages:
       params.yaml:
         mlflow.tracking_uri: mlruns/
         vae.batch_size: 512
-        vae.beta_max: 0.15930522616241014
+        vae.beta_max: 0.17577012339291243
         vae.beta_start: 0.0
-        vae.dropout_p: 0.09585112746335846
+        vae.dropout_p: 0.2154425536543242
         vae.encoder_dims:
         - 256
         - 128
         - 64
         vae.epochs: 200
         vae.experiment_name: crash-severity-vae
-        vae.latent_dim: 32
-        vae.lr: 0.0001519934830130982
+        vae.latent_dim: 16
+        vae.lr: 0.0007044550797720336
         vae.patience: 20
-        vae.warmup_epochs: 10
+        vae.warmup_epochs: 29
     outs:
     - path: models/vae_decoder.pth
       hash: md5
-      md5: a06d3555b3f2b64a19daf5557dc5620b
-      size: 213641
+      md5: e5bfde38586a67e48fc23f96ac6af369
+      size: 209545
     - path: models/vae_encoder.pth
       hash: md5
-      md5: cb18c0ebd839fb7123363d9c488ac1d1
-      size: 222603
+      md5: 1d4202c52069ed2896ad62d2c4e2f4df
+      size: 214283
   encode:
     cmd: python -m src.encode.run
     deps:
@@ -523,7 +523,7 @@ stages:
       size: 3567008
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 5cdf60454c95a3cb75650f82f725eef3
+      md5: 8652747cb2ed2233a8fa0202086c55d5
       size: 11872688
     - path: data/processed/X_val.npy
       hash: md5
@@ -535,12 +535,12 @@ stages:
       size: 395880
     - path: models/vae_encoder.pth
       hash: md5
-      md5: cb18c0ebd839fb7123363d9c488ac1d1
-      size: 222603
+      md5: 1d4202c52069ed2896ad62d2c4e2f4df
+      size: 214283
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/encode/encoder.py
       hash: md5
       md5: 535678f08af1ab284601e3fdab151e2b
@@ -551,20 +551,20 @@ stages:
       size: 2995
     params:
       params.yaml:
-        vae.latent_dim: 32
+        vae.latent_dim: 16
     outs:
     - path: data/processed/Z_test.npy
       hash: md5
-      md5: 5bfbe11b4efae3c8117f73af81eb1061
-      size: 1902464
+      md5: c9639f8bf4b1d59f390f1521e4d9c666
+      size: 951296
     - path: data/processed/Z_train_augmented.npy
       hash: md5
-      md5: b49a0796d948ac8453f764e20c777b3c
-      size: 6332160
+      md5: 538ae449e375ac7d382c21e9c9c557e7
+      size: 3166144
     - path: data/processed/Z_val.npy
       hash: md5
-      md5: 03ed15029d7a940ae37202a31d4e0281
-      size: 1902464
+      md5: 17923e93e90342418b3b7eddb29c1c15
+      size: 951296
   augment:
     cmd: python -m src.augment.run
     deps:
@@ -586,8 +586,8 @@ stages:
       size: 3491
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     params:
       params.yaml:
         augment.random_state: 42
@@ -597,7 +597,7 @@ stages:
     outs:
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 5cdf60454c95a3cb75650f82f725eef3
+      md5: 8652747cb2ed2233a8fa0202086c55d5
       size: 11872688
     - path: data/processed/y_train_augmented.npy
       hash: md5
@@ -608,16 +608,16 @@ stages:
     deps:
     - path: data/processed/Z_test.npy
       hash: md5
-      md5: 5bfbe11b4efae3c8117f73af81eb1061
-      size: 1902464
+      md5: c9639f8bf4b1d59f390f1521e4d9c666
+      size: 951296
     - path: data/processed/Z_train_augmented.npy
       hash: md5
-      md5: b49a0796d948ac8453f764e20c777b3c
-      size: 6332160
+      md5: 538ae449e375ac7d382c21e9c9c557e7
+      size: 3166144
     - path: data/processed/Z_val.npy
       hash: md5
-      md5: 03ed15029d7a940ae37202a31d4e0281
-      size: 1902464
+      md5: 17923e93e90342418b3b7eddb29c1c15
+      size: 951296
     - path: data/processed/y_test.npy
       hash: md5
       md5: 844f180395e4bcec2d3f303b13487de1
@@ -632,8 +632,8 @@ stages:
       size: 119024
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/metrics.py
       hash: md5
       md5: d7e246a346847d11c70b8dbb941320d1
@@ -664,7 +664,7 @@ stages:
         dl.dropout_p: 0.1
         dl.epochs: 100
         dl.hidden_dim: 64
-        dl.input_dim: 32
+        dl.input_dim: 16
         dl.lr: 0.001
         dl.patience: 10
         mlflow.experiment_name_dl: crash-severity-dl
@@ -673,23 +673,23 @@ stages:
     outs:
     - path: models/mlp_model.pth
       hash: md5
-      md5: 5afd222f6d4e40befd334e520b6878d1
-      size: 33635
+      md5: e3ff8ab704a2a2b67f37cc07e9c24872
+      size: 21347
   train_ml:
     cmd: python -m src.train_ml.run
     deps:
     - path: data/processed/Z_test.npy
       hash: md5
-      md5: 5bfbe11b4efae3c8117f73af81eb1061
-      size: 1902464
+      md5: c9639f8bf4b1d59f390f1521e4d9c666
+      size: 951296
     - path: data/processed/Z_train_augmented.npy
       hash: md5
-      md5: b49a0796d948ac8453f764e20c777b3c
-      size: 6332160
+      md5: 538ae449e375ac7d382c21e9c9c557e7
+      size: 3166144
     - path: data/processed/Z_val.npy
       hash: md5
-      md5: 03ed15029d7a940ae37202a31d4e0281
-      size: 1902464
+      md5: 17923e93e90342418b3b7eddb29c1c15
+      size: 951296
     - path: data/processed/y_test.npy
       hash: md5
       md5: 844f180395e4bcec2d3f303b13487de1
@@ -704,8 +704,8 @@ stages:
       size: 119024
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/metrics.py
       hash: md5
       md5: d7e246a346847d11c70b8dbb941320d1
@@ -734,30 +734,30 @@ stages:
         - 9
         mlflow.experiment_name_ml: crash-severity-ml
         mlflow.tracking_uri: mlruns/
-        model.fatal_recall_threshold: 0.5
-        model.fatal_threshold: 0.17000000000000004
+        model.fatal_recall_threshold: 0.35
+        model.fatal_threshold: 0.15
         model.macro_f1_threshold: 0.35
         model.n_classes: 3
     outs:
     - path: models/best_ml_model.pkl
       hash: md5
-      md5: b595c574d3613e86a1d0a0e79dca2abb
-      size: 1200504
+      md5: e6a1cebb26477b1a4f287b6b5fa764f9
+      size: 1254793
   evaluate:
     cmd: python -m src.evaluate.run
     deps:
     - path: models/best_ml_model.pkl
       hash: md5
-      md5: b595c574d3613e86a1d0a0e79dca2abb
-      size: 1200504
+      md5: e6a1cebb26477b1a4f287b6b5fa764f9
+      size: 1254793
     - path: models/mlp_model.pth
       hash: md5
-      md5: 5afd222f6d4e40befd334e520b6878d1
-      size: 33635
+      md5: e3ff8ab704a2a2b67f37cc07e9c24872
+      size: 21347
     - path: src/config.py
       hash: md5
-      md5: 02070dfade2f7d83a3f85385d6c603b2
-      size: 5756
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/evaluate/evaluator.py
       hash: md5
       md5: 17cd21f3e86e99a20abe27399e4bf868
@@ -773,37 +773,37 @@ stages:
         mlflow.experiment_name_dl: crash-severity-dl
         mlflow.experiment_name_ml: crash-severity-ml
         mlflow.tracking_uri: mlruns/
-        model.fatal_recall_threshold: 0.5
+        model.fatal_recall_threshold: 0.35
         model.macro_f1_threshold: 0.35
         model.n_classes: 3
     outs:
     - path: docs/ab_test_comparison.json
       hash: md5
-      md5: cff8d5ec97dfae777fc20d11a6d57dcf
-      size: 339
+      md5: 5da0319ccfd0ae2f5e6e0fbdbd32cee6
+      size: 338
     - path: docs/evaluation_report.json
       hash: md5
-      md5: 206d8e2ee8c48dee977a4dfe0c8a2375
-      size: 436
+      md5: fc9005ab43630665e5c619f88d263143
+      size: 433
   tune:
     cmd: python -m src.tune.run
     deps:
     - path: data/processed/X_test.npy
       hash: md5
-      md5: b1e918cc1ae6891f2f6fdfa51159345d
-      size: 3329216
+      md5: 7ef2c68cf1f485d7edd8a337b0d0c79c
+      size: 3567008
     - path: data/processed/X_train.npy
       hash: md5
-      md5: 9f0f7c28ac76d86452bdad5becbd030e
-      size: 9987168
+      md5: fff30ce87c311b7a49cecd1db0f7b9a6
+      size: 10700528
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: ab84031ea5c8d6091e9a07785fd22942
-      size: 10498112
+      md5: 8652747cb2ed2233a8fa0202086c55d5
+      size: 11872688
     - path: data/processed/X_val.npy
       hash: md5
-      md5: da3d9829fd832c0c42bdb8a4ad690130
-      size: 3329216
+      md5: cdb9583e7bac697e0f7853ae7aff00a1
+      size: 3567008
     - path: data/processed/y_test.npy
       hash: md5
       md5: 844f180395e4bcec2d3f303b13487de1
@@ -814,28 +814,28 @@ stages:
       size: 356808
     - path: data/processed/y_train_augmented.npy
       hash: md5
-      md5: 55a49e396eb9eca004a8de00433cebc6
-      size: 375056
+      md5: c53a87b6d2083b121bc8ea4636ca468f
+      size: 395880
     - path: data/processed/y_val.npy
       hash: md5
       md5: 704b856814362004dbe5e92b2a4f65db
       size: 119024
     - path: docs/evaluation_report.json
       hash: md5
-      md5: 269a491c52cdd4b69887f653ddd56bfa
-      size: 437
+      md5: 30a8e677046453d1d6d9f81c9f8776c8
+      size: 436
     - path: src/config.py
       hash: md5
-      md5: e9d730377cd87876a17eba70d41fa774
-      size: 5461
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
     - path: src/tune/optuna_tuner.py
       hash: md5
-      md5: e88cfe6e726e8fa440108bbccb6f0900
-      size: 10129
+      md5: fb75bbb8c611acd00820c663946d8a1e
+      size: 10333
     - path: src/tune/run.py
       hash: md5
-      md5: 4a2c51c987b06befe9427eaef59de5b1
-      size: 3440
+      md5: 59d355e07798db55fddca0a50cde580e
+      size: 4182
     params:
       params.yaml:
         mlflow.experiment_name_tune: crash-severity-tune
@@ -856,11 +856,46 @@ stages:
         - 64
         tune.optuna.search_space.lr_high: 0.001
         tune.optuna.search_space.lr_low: 0.0001
+        tune.optuna.search_space.target_fatal_ratio_choices:
+        - 0.05
+        - 0.1
+        - 0.15
+        - 0.2
         tune.optuna.search_space.warmup_epochs_high: 30
         tune.optuna.search_space.warmup_epochs_low: 5
         tune.optuna.study_name: vae-optuna-hpo
     outs:
     - path: docs/optuna_best_params.json
       hash: md5
-      md5: 0b40ca9ee0c37a97e6b044dc24252761
-      size: 230
+      md5: 96723c88dd2885c5775b3ceadf16ed08
+      size: 282
+  register:
+    cmd: python -m src.register.run
+    deps:
+    - path: docs/evaluation_report.json
+      hash: md5
+      md5: fc9005ab43630665e5c619f88d263143
+      size: 433
+    - path: src/config.py
+      hash: md5
+      md5: 80175ee4e56a07327ad90ad378e7f64a
+      size: 5858
+    - path: src/register/registrar.py
+      hash: md5
+      md5: 3b4e47a15ebd72e13ed326567069e8fe
+      size: 5561
+    - path: src/register/run.py
+      hash: md5
+      md5: e6acbdb12fbc94a334488fba7d031ee6
+      size: 3361
+    params:
+      params.yaml:
+        mlflow.experiment_name_dl: crash-severity-dl
+        mlflow.experiment_name_ml: crash-severity-ml
+        mlflow.model_name: crash-severity
+        mlflow.tracking_uri: mlruns/
+    outs:
+    - path: models/registry_receipt.json
+      hash: md5
+      md5: efe7cd1304951caf4c52b6701eb2f839
+      size: 147

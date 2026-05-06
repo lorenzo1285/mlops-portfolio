@@ -31,11 +31,22 @@ def main() -> None:
 
         gates_passed = report["gates_passed"]
 
-        if gates_passed:
+        # Skip HPO only when gates pass AND augmentation ratio is not being searched
+        # (single-element or absent choices means ratio is fixed)
+        ratio_choices = (
+            config.tune.optuna.search_space.target_fatal_ratio_choices
+            if config.tune.optuna else []
+        )
+        searching_augmentation = len(ratio_choices) > 1
+
+        if gates_passed and not searching_augmentation:
             print("Gates PASSED — skipping HPO (model is already good enough)")
             with open(optuna_output_path, "w") as f:
                 json.dump({"skipped": True, "reason": "gates_passed"}, f, indent=2)
             sys.exit(0)
+
+        if gates_passed:
+            print("Gates PASSED — running HPO anyway to optimize target_fatal_ratio")
 
         winner = report["winner"]
         winner_f1_key = "ml_mean_f1" if winner == "ml" else "dl_mean_f1"
@@ -53,6 +64,7 @@ def main() -> None:
             mlflow_config=config.mlflow,
             data_dir=data_dir,
             model_config=config.model,
+            augment_config=config.augment,
         )
 
         result = tuner.tune()
@@ -71,6 +83,9 @@ def main() -> None:
         params.setdefault("dl", {})
         params["dl"]["input_dim"] = result.best_params["latent_dim"]
 
+        params.setdefault("augment", {})
+        params["augment"]["target_fatal_ratio"] = result.best_params["target_fatal_ratio"]
+
         with open(params_path, "w") as f:
             yaml.dump(params, f, default_flow_style=None, sort_keys=False)
 
@@ -79,6 +94,7 @@ def main() -> None:
             "val_fitness": result.best_value,
             "n_trials": result.n_trials,
             "winner": winner,
+            "recall_gate": config.model.fatal_recall_threshold,
         }
 
         with open(optuna_output_path, "w") as f:

@@ -229,6 +229,7 @@ stages:
       - tune.optuna.search_space.lr_high
       - tune.optuna.search_space.dropout_p_low
       - tune.optuna.search_space.dropout_p_high
+      - tune.optuna.search_space.target_fatal_ratio_choices
       - mlflow.tracking_uri
       - mlflow.experiment_name_tune
     outs:

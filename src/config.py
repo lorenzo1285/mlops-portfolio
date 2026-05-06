@@ -117,6 +117,7 @@ class OptunaSearchSpace:
     lr_high: float
     dropout_p_low: float
     dropout_p_high: float
+    target_fatal_ratio_choices: list[float] = field(default_factory=lambda: [0.05, 0.10, 0.15, 0.20])
 
 
 @dataclass

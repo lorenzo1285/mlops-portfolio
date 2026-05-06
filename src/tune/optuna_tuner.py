@@ -10,7 +10,8 @@ import optuna
 from optuna.pruners import MedianPruner
 from optuna.samplers import TPESampler
 
-from src.config import MLflowConfig, ModelConfig, TuneConfig, VAEConfig
+from src.augment.augmenter import CTGANAugmenter
+from src.config import AugmentConfig, MLflowConfig, ModelConfig, TuneConfig, VAEConfig
 from src.encode.encoder import LatentEncoder
 from src.train_ml.trainer import MLTrainer
 from src.train_vae.vae_trainer import DVAETrainer
@@ -37,45 +38,51 @@ class OptunaTuner:
         mlflow_config: MLflowConfig,
         data_dir: Path | str,
         model_config: ModelConfig | None = None,
+        augment_config: AugmentConfig | None = None,
     ) -> None:
-        """Initialize tuner and load featurized data.
-
-        Args:
-            tune_config: Tune configuration with Optuna settings
-            vae_config: Base VAE configuration (will be cloned with suggested params)
-            mlflow_config: MLflow tracking configuration
-            data_dir: Directory containing processed data files
-            model_config: Model configuration for classifier training (uses defaults if None)
-        """
         self._tune_config = tune_config
         self._vae_config = vae_config
         self._mlflow_config = mlflow_config
         self._data_dir = Path(data_dir)
-        
-        # Use provided model_config or create minimal defaults
+
         if model_config is None:
             from src.config import ModelConfig
             model_config = ModelConfig(
                 n_classes=3,
                 n_select=3,
                 macro_f1_threshold=0.35,
-                fatal_recall_threshold=0.5,
-                fatal_threshold=0.5,
+                fatal_recall_threshold=0.35,
+                fatal_threshold=0.15,
             )
         self._model_config = model_config
 
-        # Load featurized data at construction
         processed_dir = self._data_dir / "processed"
-        # X_train (pre-augmentation) for VAE unsupervised training — matches pipeline design
         self._X_train = np.load(processed_dir / "X_train.npy")
-        self._X_train_aug = np.load(processed_dir / "X_train_augmented.npy")
-        self._y_train_aug = np.load(processed_dir / "y_train_augmented.npy")
+        self._y_train = np.load(processed_dir / "y_train.npy")
         self._X_val = np.load(processed_dir / "X_val.npy")
         self._y_val = np.load(processed_dir / "y_val.npy")
         self._X_test = np.load(processed_dir / "X_test.npy")
         self._y_test = np.load(processed_dir / "y_test.npy")
 
-        # Storage for best run tracking
+        # Pre-compute augmented datasets for each candidate ratio (done once, not per trial)
+        search_space = tune_config.optuna.search_space if tune_config.optuna else None
+        ratios = (
+            search_space.target_fatal_ratio_choices
+            if search_space is not None
+            else [0.10]
+        )
+        self._augmented_data: dict[float, tuple[np.ndarray, np.ndarray]] = {}
+        for ratio in ratios:
+            print(f"Pre-computing augmentation for target_fatal_ratio={ratio}...")
+            cfg = augment_config if augment_config is not None else AugmentConfig(
+                tvae_epochs=200, target_fatal_ratio=ratio, random_state=42
+            )
+            from dataclasses import replace as dc_replace
+            trial_aug_cfg = dc_replace(cfg, target_fatal_ratio=ratio)
+            result = CTGANAugmenter(trial_aug_cfg).augment(self._X_train, self._y_train)
+            self._augmented_data[ratio] = (result.X_augmented, result.y_augmented)
+            print(f"  ratio={ratio}: {result.n_synthetic} synthetic Fatal added")
+
         self._best_run_id: str | None = None
 
     def _objective(self, trial: optuna.Trial) -> float:
@@ -87,38 +94,23 @@ class OptunaTuner:
         Returns:
             Validation macro F1 score (fitness metric to maximize)
         """
-        # Get search space from config
         search_space = self._tune_config.optuna.search_space
 
-        # Suggest hyperparameters
         beta_max = trial.suggest_float(
-            "beta_max",
-            search_space.beta_max_low,
-            search_space.beta_max_high,
-            log=True,
+            "beta_max", search_space.beta_max_low, search_space.beta_max_high, log=True,
         )
-        latent_dim = trial.suggest_categorical(
-            "latent_dim",
-            search_space.latent_dim_choices,
-        )
+        latent_dim = trial.suggest_categorical("latent_dim", search_space.latent_dim_choices)
         warmup_epochs = trial.suggest_int(
-            "warmup_epochs",
-            search_space.warmup_epochs_low,
-            search_space.warmup_epochs_high,
+            "warmup_epochs", search_space.warmup_epochs_low, search_space.warmup_epochs_high,
         )
-        lr = trial.suggest_float(
-            "lr",
-            search_space.lr_low,
-            search_space.lr_high,
-            log=True,
-        )
+        lr = trial.suggest_float("lr", search_space.lr_low, search_space.lr_high, log=True)
         dropout_p = trial.suggest_float(
-            "dropout_p",
-            search_space.dropout_p_low,
-            search_space.dropout_p_high,
+            "dropout_p", search_space.dropout_p_low, search_space.dropout_p_high,
+        )
+        target_fatal_ratio = trial.suggest_categorical(
+            "target_fatal_ratio", search_space.target_fatal_ratio_choices,
         )
 
-        # Clone VAE config with suggested hyperparameters
         trial_vae_config = replace(
             self._vae_config,
             beta_max=beta_max,
@@ -128,10 +120,9 @@ class OptunaTuner:
             dropout_p=dropout_p,
         )
 
-        # Combine original (pre-augmentation) train/val/test for unsupervised VAE training
-        y_train_orig = np.load(self._data_dir / "processed" / "y_train.npy")
+        X_train_aug, y_train_aug = self._augmented_data[target_fatal_ratio]
         X_all = np.vstack([self._X_train, self._X_val, self._X_test])
-        y_all = np.hstack([y_train_orig, self._y_val, self._y_test])
+        y_all = np.hstack([self._y_train, self._y_val, self._y_test])
 
         # MLflow nested run for this trial
         mlflow.set_tracking_uri(self._mlflow_config.tracking_uri)
@@ -142,13 +133,13 @@ class OptunaTuner:
             mlflow.set_tag("trial_type", "optuna")
             mlflow.set_tag("trial_number", trial.number)
 
-            # Log trial hyperparameters
             mlflow.log_params({
                 "beta_max": beta_max,
                 "latent_dim": latent_dim,
                 "warmup_epochs": warmup_epochs,
                 "lr": lr,
                 "dropout_p": dropout_p,
+                "target_fatal_ratio": target_fatal_ratio,
             })
 
             try:
@@ -170,8 +161,8 @@ class OptunaTuner:
                     latent_dim=latent_dim,
                 )
                 encode_result = encoder.encode(
-                    X_train_augmented=self._X_train_aug,
-                    y_train_augmented=self._y_train_aug,
+                    X_train_augmented=X_train_aug,
+                    y_train_augmented=y_train_aug,
                     X_val=self._X_val,
                     X_test=self._X_test,
                 )
@@ -184,15 +175,15 @@ class OptunaTuner:
                 )
                 ml_result = ml_trainer.train(
                     Z_train=encode_result.Z_train_augmented,
-                    y_train=self._y_train_aug,
+                    y_train=y_train_aug,
                     Z_val=encode_result.Z_val,
                     y_val=self._y_val,
                     Z_test=encode_result.Z_test,
                     y_test=self._y_test,
                 )
 
-                # Validation fitness metric (maximize): penalise 50% if fatal recall gate missed
-                recall_penalty = 1.0 if ml_result.eval_fatal_recall >= 0.50 else 0.5
+                # Penalise 50% if fatal recall gate missed (gate aligned with params.yaml)
+                recall_penalty = 1.0 if ml_result.eval_fatal_recall >= 0.35 else 0.5
                 val_fitness = ml_result.eval_macro_f1 * recall_penalty
 
                 # Log fitness
@@ -259,6 +250,7 @@ class OptunaTuner:
                 "warmup_epochs": best_trial.params["warmup_epochs"],
                 "lr": best_trial.params["lr"],
                 "dropout_p": best_trial.params["dropout_p"],
+                "target_fatal_ratio": best_trial.params["target_fatal_ratio"],
             },
             best_value=best_trial.value,
             n_trials=len(study.trials),
