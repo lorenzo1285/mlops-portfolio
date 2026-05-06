@@ -356,3 +356,71 @@ class TestTrainML:
         # Additional check: eval_fatal_recall should also be logged
         assert "eval_fatal_recall" in metrics, \
             "eval_fatal_recall (val) should be logged for transparency."
+
+    def test_ml_trainer_uses_custom_focal_loss_when_enabled(
+        self, mlflow_config, dummy_Z_splits, dummy_y_splits, tmp_path
+    ):
+        """T125b RED: MLTrainer should pass objective='focal_loss_grad_hess' to XGBClassifier when enabled."""
+        # Arrange
+        Z_train, Z_val, Z_test = dummy_Z_splits
+        y_train, y_val, y_test = dummy_y_splits
+        
+        config = ModelConfig(
+            n_classes=3,
+            n_select=10,
+            macro_f1_threshold=0.35,
+            fatal_recall_threshold=0.50,
+            focal_loss_enabled=True,
+            focal_loss_gamma=3.0,
+        )
+        
+        trainer = MLTrainer(
+            mlflow_config=mlflow_config,
+            model_config=config,
+            seeds=[0],
+        )
+        
+        # Patch XGBClassifier and pickle.dump so the mock doesn't reach serialisation
+        from unittest.mock import patch, MagicMock
+        with patch("src.train_ml.trainer.XGBClassifier") as mock_xgb, \
+             patch("src.train_ml.trainer.pickle.dump"):
+            mock_instance = mock_xgb.return_value
+            mock_instance.predict_proba.side_effect = [
+                np.zeros((len(Z_train), 3)),
+                np.zeros((len(Z_val), 3)),
+                np.zeros((len(Z_test), 3)),
+            ]
+            mock_instance.predict.side_effect = [
+                np.zeros(len(Z_train), dtype=int),
+                np.zeros(len(Z_val), dtype=int),
+                np.zeros(len(Z_test), dtype=int),
+            ]
+
+            # Act
+            trainer.train(Z_train, y_train, Z_val, y_val, Z_test, y_test)
+
+            # Assert: objective must be a callable (focal loss fn), not a string
+            args, kwargs = mock_xgb.call_args
+            assert "objective" in kwargs, "objective param missing from XGBClassifier constructor"
+            assert callable(kwargs["objective"]), "objective should be a focal loss callable"
+
+    def test_focal_loss_grad_hess_returns_correct_shapes(self):
+        """T125b RED: focal_loss_grad_hess(gamma, alpha)(y_true, y_pred) -> (grad, hess) both shape (N*K,)."""
+        from src.metrics import focal_loss_grad_hess
+
+        N = 50
+        K = 3
+        rng = np.random.default_rng(0)
+        y_pred = rng.standard_normal((N * K,)).astype(np.float32)  # Raw margins (logits)
+        y_true = rng.integers(0, K, size=N).astype(np.int32)
+
+        # Instantiate objective
+        obj = focal_loss_grad_hess(gamma=2.0)
+        grad, hess = obj(y_true, y_pred)
+
+        assert grad.shape == (N, K), f"Expected grad shape {(N, K)}, got {grad.shape}"
+        assert hess.shape == (N, K), f"Expected hess shape {(N, K)}, got {hess.shape}"
+
+        assert np.isfinite(grad).all(), "grad contains non-finite values"
+        assert np.isfinite(hess).all(), "hess contains non-finite values"
+        assert (hess > 0).all(), "hess should be strictly positive"

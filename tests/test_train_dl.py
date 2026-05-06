@@ -27,6 +27,8 @@ class TestTrainDL:
             batch_size=32,
             lr=0.001,
             experiment_name="test-dl",
+            focal_loss_enabled=False,
+            focal_loss_gamma=2.0,
         )
 
     @pytest.fixture
@@ -222,3 +224,88 @@ class TestTrainDL:
         for indicator in autolog_indicators:
             assert indicator not in params, \
                 f"Autolog indicator '{indicator}' found in params — autolog should be disabled"
+
+    def test_balanced_focal_loss_returns_scalar(self):
+        """BalancedFocalLoss(gamma, weight) should return a scalar loss."""
+        # Arrange
+        from src.train_dl.losses import BalancedFocalLoss
+        
+        batch_size = 8
+        n_classes = 3
+        gamma = 2.0
+        weight = torch.tensor([1.0, 1.5, 2.0])  # class weights
+        
+        loss_fn = BalancedFocalLoss(gamma=gamma, weight=weight)
+        logits = torch.randn(batch_size, n_classes, requires_grad=True)
+        targets = torch.randint(0, n_classes, (batch_size,))
+        
+        # Act
+        loss = loss_fn(logits, targets)
+        
+        # Assert: returns scalar tensor
+        assert isinstance(loss, torch.Tensor), \
+            f"Expected torch.Tensor, got {type(loss)}"
+        assert loss.dim() == 0, \
+            f"Expected scalar (0-dim), got shape {loss.shape}"
+        assert loss.requires_grad, \
+            "Loss should be differentiable"
+
+    def test_balanced_focal_loss_focal_property(self):
+        """Focal property: confident correct predictions have lower loss than hard incorrect ones."""
+        # Arrange
+        from src.train_dl.losses import BalancedFocalLoss
+        
+        gamma = 2.0
+        weight = torch.ones(3)  # equal weights to isolate focal effect
+        loss_fn = BalancedFocalLoss(gamma=gamma, weight=weight)
+        
+        # Case 1: Confident correct prediction (high logit for true class)
+        logits_confident = torch.tensor([[10.0, 0.0, 0.0]])  # strongly predicts class 0
+        targets_confident = torch.tensor([0])  # true class is 0
+        
+        # Case 2: Hard incorrect prediction (low logit for true class)
+        logits_hard = torch.tensor([[0.0, 10.0, 0.0]])  # strongly predicts class 1
+        targets_hard = torch.tensor([0])  # true class is 0, but predicted 1
+        
+        # Act
+        loss_confident = loss_fn(logits_confident, targets_confident)
+        loss_hard = loss_fn(logits_hard, targets_hard)
+        
+        # Assert: focal property — confident correct loss < hard incorrect loss
+        assert loss_confident.item() < loss_hard.item(), \
+            f"Focal property violated: confident loss {loss_confident.item():.4f} >= hard loss {loss_hard.item():.4f}"
+
+    def test_dl_trainer_uses_focal_loss_when_enabled(self, mlflow_config, model_config, dummy_Z_splits, dummy_y_splits):
+        """DLTrainer logs loss_function=BalancedFocalLoss when enabled, CrossEntropyLoss when not."""
+        from src.train_dl.losses import BalancedFocalLoss  # RED: ImportError until T133c
+
+        Z_train, Z_val, Z_test = dummy_Z_splits
+        y_train, y_val, y_test = dummy_y_splits
+
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+
+        config_enabled = DLConfig(
+            input_dim=8, hidden_dim=16, dropout_p=0.1, epochs=2, patience=10,
+            batch_size=32, lr=0.001, experiment_name="test-dl-focal-enabled",
+            focal_loss_enabled=True, focal_loss_gamma=2.0,
+        )
+        config_disabled = DLConfig(
+            input_dim=8, hidden_dim=16, dropout_p=0.1, epochs=2, patience=10,
+            batch_size=32, lr=0.001, experiment_name="test-dl-focal-disabled",
+            focal_loss_enabled=False, focal_loss_gamma=2.0,
+        )
+
+        result_enabled = DLTrainer(
+            dl_config=config_enabled, mlflow_config=mlflow_config,
+            seeds=[0], model_config=model_config,
+        ).train(Z_train, y_train, Z_val, y_val, Z_test, y_test)
+
+        result_disabled = DLTrainer(
+            dl_config=config_disabled, mlflow_config=mlflow_config,
+            seeds=[0], model_config=model_config,
+        ).train(Z_train, y_train, Z_val, y_val, Z_test, y_test)
+
+        assert mlflow.get_run(result_enabled.run_id).data.params.get("loss_function") == "BalancedFocalLoss", \
+            "focal_loss_enabled=True must log loss_function=BalancedFocalLoss"
+        assert mlflow.get_run(result_disabled.run_id).data.params.get("loss_function") == "CrossEntropyLoss", \
+            "focal_loss_enabled=False must log loss_function=CrossEntropyLoss"

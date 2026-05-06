@@ -41,6 +41,8 @@ def main() -> None:
         ordinal_cols=config.features.ordinal_columns,
         cyclical_cols=config.features.cyclical_columns,
         feature_selector=selector,
+        danger_index_features=config.features.danger_index_features,
+        forbidden_columns=config.features.forbidden_columns,
     ).fit_transform(df)
 
     total_out = len(result.y_train) + len(result.y_val) + len(result.y_test)

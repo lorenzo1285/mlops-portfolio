@@ -1,4 +1,6 @@
 features:
+  danger_index_features: true
+  forbidden_columns: [NUMOFKILL, NUMOFINJ, NUMOFUNINJ]
   columns: [HOUR, DAYOFWEEK, MONTH, YEAR, WEATHER, SURFCOND, LIGHTING, SPEEDLIMIT,
     RDNUMLANES, RDWIDTH, ROUTECLASS, TRUNKLINE, RDSUBTYPE, DRIVER1AGE, DRIVER1SEX,
     DRIVER2AGE, DRIVER2SEX, VEH1TYPE, VEH1USE, VEH2TYPE, VEH2USE, CRASHTYPE, TRAFCTLDEV,
@@ -13,9 +15,9 @@ features:
 data: {raw_path: data/raw/CGR_Crash_Data.csv, processed_dir: data/processed/, train_size: 0.6,
   val_size: 0.2, test_size: 0.2, random_state: 42, sentinel_value: 999}
 model: {n_classes: 3, n_select: 3, macro_f1_threshold: 0.35, fatal_recall_threshold: 0.5,
-  fatal_threshold: 0.17000000000000004}
+  fatal_threshold: 0.17000000000000004, focal_loss_enabled: true, focal_loss_gamma: 2.0}
 dl: {input_dim: 32, hidden_dim: 64, dropout_p: 0.1, epochs: 100, patience: 10, batch_size: 256,
-  lr: 0.001, experiment_name: crash-severity-dl}
+  lr: 0.001, experiment_name: crash-severity-dl, focal_loss_enabled: true, focal_loss_gamma: 2.0}
 vae:
   encoder_dims: [256, 128, 64]
   latent_dim: 32
@@ -28,7 +30,9 @@ vae:
   batch_size: 512
   lr: 0.0001519934830130982
   experiment_name: crash-severity-vae
-augment: {tvae_epochs: 500, target_fatal_ratio: 0.05, random_state: 42}
+  cyclical_annealing: true
+  cycle_epochs: 50
+augment: {tvae_epochs: 500, target_fatal_ratio: 0.10, random_state: 42}
 mlflow: {experiment_name_ml: crash-severity-ml, experiment_name_dl: crash-severity-dl,
   experiment_name_vae: crash-severity-vae, experiment_name_tune: crash-severity-tune,
   model_name: crash-severity, tracking_uri: mlruns/}
@@ -183,3 +187,4 @@ validation:
       mostly: 1.0
     X: {dtype: float, min: -85.76, max: -85.56, mostly: 1.0}
     Y: {dtype: float, min: 42.88, max: 43.04, mostly: 1.0}
+    NUMOFVEHIC: {dtype: int, min: 1, max: 12, mostly: 1.0}

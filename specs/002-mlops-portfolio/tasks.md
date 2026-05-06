@@ -91,9 +91,9 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
 
 | Done | Task | Action |
 |------|------|--------|
-| | T135a | Add `vae.cyclical_annealing: false` + `vae.cycle_epochs: 50` to `params.yaml`; extend `VAEConfig` |
-| | T135b | **RED** — cyclical schedule tests in `tests/test_vae_trainer.py` |
-| | T135c | **GREEN** — add cyclical branch to `DVAETrainer.train()` at `vae_trainer.py:276` |
+| ✅ | T135a | Add `vae.cyclical_annealing: false` + `vae.cycle_epochs: 50` to `params.yaml`; extend `VAEConfig` |
+| ✅ | T135b | **RED** — cyclical schedule tests in `tests/test_vae_trainer.py` |
+| ✅ | T135c | **GREEN** — add cyclical branch to `DVAETrainer.train()` at `vae_trainer.py:276` |
 | | T135d | Set `cyclical_annealing: true`; `uv run dvc repro train_vae encode train_ml train_dl evaluate` → **check gates** |
 
 > Gates pass → STEP 9. Gates fail → STEP 7.
@@ -102,11 +102,11 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
 
 | Done | Task | Action |
 |------|------|--------|
-| | T123a | Leakage audit — confirm safe/unsafe columns; record in `docs/data_contract.md` |
-| | T123b | Add `features.danger_index_features: false` to `params.yaml`; extend `FeaturesConfig` |
-| | T123c | **RED** — danger index column tests in `tests/test_featurize.py` |
-| | T123d | **GREEN** — add `solo_highspeed` + `vulnerability_interaction` to `Featurizer` |
-| | T123e | `uv run dvc repro featurize train_vae encode train_ml train_dl evaluate` → **check gates** |
+| ✅ | T123a | Leakage audit — confirm safe/unsafe columns; record in `docs/data_contract.md` |
+| ✅ | T123b | Config + GE contract (`validation.columns.NUMOFVEHIC`) + DVC wiring; extend `FeaturesConfig` |
+| ✅ | T123c | **RED** — 4 tests: leakage guard raises; cols absent when disabled; +2 cols when enabled; forbidden never in output |
+| ✅ | T123d | **GREEN** — `FORBIDDEN_COLUMNS` constant + constructor guard + `_compute_danger_index()` + `_select_and_recode` + `run.py` |
+| ✅ | T123e | `uv run dvc repro featurize train_vae encode train_ml train_dl evaluate` → **GATES FAILED** (ML macro F1=0.3555 ✅, fatal recall=0.3830 ❌) → Fix D |
 
 > Gates pass → STEP 9. Gates fail → STEP 8.
 
@@ -114,10 +114,10 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
 
 | Done | Task | Action |
 |------|------|--------|
-| | T125a | Add `model.focal_loss_enabled: false` + `model.focal_loss_gamma: 2.0` to `params.yaml`; extend `ModelConfig` |
-| | T125b | **RED** — custom obj callable tests in `tests/test_train_ml.py` |
-| | T125c | **GREEN** — add `focal_loss_grad_hess()` to `src/metrics.py`; wire into `MLTrainer` |
-| | T125d | `uv run dvc repro evaluate` → **check gates** |
+| ✅ | T125a | Add `model.focal_loss_enabled: false` + `model.focal_loss_gamma: 2.0` to `params.yaml`; extend `ModelConfig` |
+| ✅ | T125b | **RED** — custom obj callable tests in `tests/test_train_ml.py` |
+| ✅ | T125c | **GREEN** — add `focal_loss_grad_hess()` to `src/metrics.py`; wire into `MLTrainer` |
+| ✅ | T125d | `uv run dvc repro evaluate` → **GATES FAILED** (ML macro F1=0.3560 ✅, fatal recall=0.3801 ❌) → Fix E |
 
 > Gates pass → STEP 9. Gates fail → Fix E/F require constitution amendments — stop and discuss.
 
@@ -295,27 +295,27 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
 
 ---
 
-### Fix A — MLP Balanced Focal Loss
+### ✅ Fix A — MLP Balanced Focal Loss
 
 *No upstream cascade — only `train_dl` reruns.*  
 *Formula*: `FL = −α_t · (1 − p_t)^γ · log(p_t)` where `α_t` = class weight, `p_t` = predicted probability for true class.
 
-- [ ] T133a [P] Add `dl.focal_loss_enabled: false` and `dl.focal_loss_gamma: 2.0` to `params.yaml`; extend `DLConfig` in `src/config.py`.
-- [ ] T133b **RED** — `tests/test_train_dl.py`: assert `BalancedFocalLoss(gamma=2.0, weight=w)(logits, targets)` returns scalar; assert focal property (confident correct loss < hard incorrect loss); assert `DLTrainer` uses `BalancedFocalLoss` when enabled, `CrossEntropyLoss` when not.
-- [ ] T133c **GREEN** — Add `BalancedFocalLoss(nn.Module)` to `src/metrics.py`: `forward` computes softmax → gather `p_t` → apply `−α_t · (1−p_t)^γ · log(p_t)` → mean. Swap into `DLTrainer._train_single_seed()` at `trainer.py:119` behind `focal_loss_enabled` flag.
-- [ ] T133d Set `dl.focal_loss_enabled: true`; `uv run dvc repro train_dl evaluate`. **Gates pass → T051. Gates fail → Fix B.**
+- [x] T133a [P] Add `dl.focal_loss_enabled: false` and `dl.focal_loss_gamma: 2.0` to `params.yaml`; extend `DLConfig` in `src/config.py`.
+- [x] T133b **RED** — `tests/test_train_dl.py`: assert `BalancedFocalLoss(gamma=2.0, weight=w)(logits, targets)` returns scalar; assert focal property (confident correct loss < hard incorrect loss); assert `DLTrainer` uses `BalancedFocalLoss` when enabled, `CrossEntropyLoss` when not.
+- [x] T133c **GREEN** — Add `BalancedFocalLoss(nn.Module)` to `src/metrics.py`: `forward` computes softmax → gather `p_t` → apply `−α_t · (1−p_t)^γ · log(p_t)` → mean. Swap into `DLTrainer._train_single_seed()` at `trainer.py:119` behind `focal_loss_enabled` flag.
+- [x] T133d Set `dl.focal_loss_enabled: true`; `uv run dvc repro train_dl evaluate`. **Gates pass → T051. Gates fail → Fix B.**
 
 ---
 
-### Fix B — Cyclical KL Annealing
+### ✅ Fix B — Cyclical KL Annealing
 
 *Triggers VAE retrain cascade.*  
 *Schedule*: `β_t = beta_max × min(1, (epoch % cycle_epochs) / warmup_epochs)` — resets β to 0 every `cycle_epochs`.
 
-- [ ] T135a [P] Add `vae.cyclical_annealing: false` and `vae.cycle_epochs: 50` to `params.yaml`; extend `VAEConfig`.
-- [ ] T135b **RED** — `tests/test_vae_trainer.py`: assert cyclical formula gives `β=0.0` at epoch 0, `β=beta_max` at epoch `warmup_epochs`, `β=0.0` at epoch `cycle_epochs`; assert monotonic schedule unchanged when `cyclical_annealing=False`.
-- [ ] T135c **GREEN** — In `DVAETrainer.train()`, replace `beta_t` expression at `vae_trainer.py:276` with branch: cyclical formula when `cyclical_annealing=True`, existing monotonic formula otherwise.
-- [ ] T135d Set `vae.cyclical_annealing: true`; `uv run dvc repro train_vae encode train_ml train_dl evaluate`. **Gates pass → T051. Gates fail → Fix C.**
+- [x] T135a [P] Add `vae.cyclical_annealing: false` and `vae.cycle_epochs: 50` to `params.yaml`; extend `VAEConfig`.
+- [x] T135b **RED** — `tests/test_vae_trainer.py`: assert cyclical formula gives `β=0.0` at epoch 0, `β=beta_max` at epoch `warmup_epochs`, `β=0.0` at epoch `cycle_epochs`; assert monotonic schedule unchanged when `cyclical_annealing=False`.
+- [x] T135c **GREEN** — In `DVAETrainer.train()`, replace `beta_t` expression at `vae_trainer.py:276` with branch: cyclical formula when `cyclical_annealing=True`, existing monotonic formula otherwise.
+- [X] T135d Set `vae.cyclical_annealing: true`; `uv run dvc repro train_vae encode train_ml train_dl evaluate`. **Gates pass → T051. Gates fail → Fix C.**
 
 ---
 
@@ -323,13 +323,27 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
 
 *Full 6-stage cascade: featurize → train_vae → encode → train_ml → train_dl → evaluate.*
 
-- [ ] T123a **Leakage Audit** — confirm `NUMOFUNINJ` is post-crash leakage (exclude); confirm `NUMOFVEHIC`, `SPEEDLIMIT`, `DRIVER1AGE` are pre-crash (safe). Record in `docs/data_contract.md`.
-- [ ] T123b [P] Add `features.danger_index_features: false` to `params.yaml`; extend `FeaturesConfig`.
-- [ ] T123c **RED** — `tests/test_featurize.py`: assert two extra columns (`solo_highspeed`, `vulnerability_interaction`) when enabled; absent when disabled; `NUMOFKILL`/`NUMOFUNINJ` never in output.
-- [ ] T123d **GREEN** — In `Featurizer`, when enabled, compute before `ColumnTransformer` fit:
-  - `solo_highspeed = ((NUMOFVEHIC == 1) & (SPEEDLIMIT >= 45)).astype(int)`
-  - `vulnerability_interaction = (((DRIVER1AGE < 25) | (DRIVER1AGE > 70)) & (SPEEDLIMIT > 40)).astype(int)`
-- [ ] T123e `uv run dvc repro featurize train_vae encode train_ml train_dl evaluate`. **Gates pass → T051. Gates fail → Fix D.**
+- [x] T123a **Leakage Audit** — confirm `NUMOFUNINJ` is post-crash leakage (exclude); confirm `NUMOFVEHIC`, `SPEEDLIMIT`, `DRIVER1AGE` are pre-crash (safe). Record in `docs/data_contract.md`.
+- [x] T123b [P] Config + GE contract + DVC wiring:
+  - Add `features.danger_index_features: false` and `features.forbidden_columns: [NUMOFKILL, NUMOFINJ, NUMOFUNINJ]` to `params.yaml`
+  - Add `NUMOFVEHIC: {dtype: int, min: 1, max: 6, mostly: 1.0}` to `validation.columns` in `params.yaml` (GE source-column contract — Constitution VIII)
+  - Extend `FeaturesConfig` with `danger_index_features: bool = False` and `forbidden_columns: list[str]`
+  - Add `features.danger_index_features` + `features.forbidden_columns` to featurize `params:` in `dvc.yaml`
+- [x] T123c **RED** — `tests/test_featurize.py` — 4 tests using real data from `data/processed/raw.csv`, direct `Featurizer` instantiation:
+  - `test_leakage_guard_raises_on_forbidden_in_features` — construct with `feature_cols=['NUMOFUNINJ', ...]` → assert `ValueError`
+  - `test_danger_index_columns_absent_when_disabled` — `danger_index_features=False` → `X_train.shape[1]` equals baseline
+  - `test_danger_index_columns_present_when_enabled` — `danger_index_features=True` → `X_train.shape[1] == baseline + 2`
+  - `test_leakage_columns_never_in_output` — `FeaturizeResult.feature_cols` contains no forbidden columns
+- [x] T123d **GREEN** — In `Featurizer`:
+  - Add `FORBIDDEN_COLUMNS = frozenset(['NUMOFKILL', 'NUMOFINJ', 'NUMOFUNINJ'])` class constant
+  - Add `danger_index_features: bool = False` to `__init__`; constructor guard raises `ValueError` on violation
+  - Add `_compute_danger_index(df)`: computes two cols, drops `NUMOFVEHIC`, returns df
+    - `solo_highspeed = ((NUMOFVEHIC == 1) & (SPEEDLIMIT >= 45)).astype(int)`
+    - `vulnerability_interaction = (((DRIVER1AGE < 25) | (DRIVER1AGE > 70)) & (SPEEDLIMIT > 40)).astype(int)`
+  - Modify `_select_and_recode`: when flag set, temporarily retain `NUMOFVEHIC`, call `_compute_danger_index` before split
+  - Update `_fit_preprocess`: append derived cols to `num` group when present in `X_train.columns`
+  - Update `src/featurize/run.py`: pass `danger_index_features=config.features.danger_index_features` to `Featurizer`
+- [x] T123e Set `features.danger_index_features: true`; `uv run dvc repro featurize train_vae encode train_ml train_dl evaluate`. **Result: ML winner, macro F1=0.3555 (PASS), fatal recall=0.3830 (FAIL ≤0.50) → Fix D.**
 
 ---
 
@@ -337,10 +351,10 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
 
 *Requires custom gradient/hessian derivation for XGBoost. High regression risk.*
 
-- [ ] T125a [P] Add `model.focal_loss_enabled: false` and `model.focal_loss_gamma: 2.0` to `params.yaml`; extend `ModelConfig`.
-- [ ] T125b **RED** — `tests/test_train_ml.py`: assert `MLTrainer` passes custom `obj` callable when enabled; assert callable returns `(grad, hess)` both shape `(N,)` for dummy `(N, 3)` probability array.
-- [ ] T125c **GREEN** — Add `focal_loss_grad_hess(y_true_onehot, y_pred_proba, alpha, gamma) → (grad, hess)` to `src/metrics.py`; wire into `MLTrainer._train_single_seed()` behind flag; switch `eval_metric` to `merror`.
-- [ ] T125d `uv run dvc repro evaluate`. **Gates pass → T051. Gates fail → Fix E.**
+- [x] T125a [P] Add `model.focal_loss_enabled: false` and `model.focal_loss_gamma: 2.0` to `params.yaml`; extend `ModelConfig`.
+- [x] T125b **RED** — `tests/test_train_ml.py`: assert `MLTrainer` passes custom `obj` callable when enabled; assert callable returns `(grad, hess)` both shape `(N, K)` for dummy `(N, 3)` probability array.
+- [x] T125c **GREEN** — Add `focal_loss_grad_hess(y_true_onehot, y_pred_proba, alpha, gamma) → (grad, hess)` to `src/metrics.py`; wire into `MLTrainer._train_single_seed()` behind flag; switch `eval_metric` to `merror`.
+- [x] T125d `uv run dvc repro evaluate`. **Result: ML winner, macro F1=0.3560 (PASS), fatal recall=0.3801 (FAIL ≤0.50) → Fix E.**
 
 ---
 

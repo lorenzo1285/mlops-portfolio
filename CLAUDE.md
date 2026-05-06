@@ -273,12 +273,18 @@ Project-level (`.agents/skills/`):
 - `mlops-engineer` — MLOps infrastructure and pipeline best practices
 - `airflow-dag-patterns` — Airflow DAG design patterns
 - `grill-me` — adversarial spec review via structured interview
-- `tdd` — red→green→refactor workflow; boundary tests; no internal mocking
-- `improve-codebase-architecture` — deep module analysis; RFC GitHub issues
 - `ubiquitous-language` — DDD canonical glossary extraction to `UBIQUITOUS_LANGUAGE.md`
+- `great-expectations` — GE expectation suites, checkpoints, data docs
+- `caveman-review` — ultra-compressed code review comments
 
 Global (`~/.claude/skills/`):
 - `find-skills` — search and install skills from skills.sh
+- `tdd` — red→green→refactor workflow; boundary tests; no internal mocking
+- `improve-codebase-architecture` — deep module analysis; RFC GitHub issues
+- `diagnose` — disciplined debug loop: reproduce → minimise → hypothesise → fix
+- `grill-with-docs` — stress-test plans against domain model and ADRs
+- `triage` — issue triage state machine
+- `zoom-out` — high-level codebase orientation
 
 ## Airflow Tutorial DAGs
 

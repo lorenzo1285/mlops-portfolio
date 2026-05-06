@@ -11,6 +11,8 @@ import yaml
 class FeaturesConfig:
     columns: list[str]
     numeric_columns: list[str]
+    danger_index_features: bool = False
+    forbidden_columns: list[str] = field(default_factory=list)
     target_column: str = "CRASHSEVER"
     sentinel_columns: list[str] = field(default_factory=list)
     ordinal_columns: dict[str, list[str]] = field(default_factory=dict)
@@ -34,6 +36,8 @@ class ModelConfig:
     n_select: int
     macro_f1_threshold: float
     fatal_recall_threshold: float
+    focal_loss_enabled: bool = False
+    focal_loss_gamma: float = 2.0
     fatal_threshold: float = 0.5
 
 
@@ -47,6 +51,8 @@ class DLConfig:
     batch_size: int
     lr: float
     experiment_name: str
+    focal_loss_enabled: bool
+    focal_loss_gamma: float
 
 
 @dataclass
@@ -62,6 +68,8 @@ class VAEConfig:
     batch_size: int
     lr: float
     experiment_name: str
+    cyclical_annealing: bool = False
+    cycle_epochs: int = 50
     
     @property
     def beta(self) -> float:

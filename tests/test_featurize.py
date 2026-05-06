@@ -146,6 +146,10 @@ class TestFeaturize:
         
         assert input_csv.exists(), f"Ingest output not found at {input_csv}"
         
+        # Load config to get actual split sizes
+        from src.config import load_config
+        config = load_config()
+        
         # Read to get actual row count
         df = pd.read_csv(input_csv, low_memory=False)
         n_rows = len(df)
@@ -163,15 +167,15 @@ class TestFeaturize:
             text=True,
         )
         
-        # Assert: Split sizes match params (70/15/15)
+        # Assert: Split sizes match params
         assert result.returncode == 0
         X_train = np.load(output_dir / "X_train.npy")
         X_val = np.load(output_dir / "X_val.npy")
         X_test = np.load(output_dir / "X_test.npy")
         
-        expected_train = int(n_rows * 0.70)
-        expected_val = int(n_rows * 0.15)
-        expected_test = int(n_rows * 0.15)
+        expected_train = int(n_rows * config.data.train_size)
+        expected_val = int(n_rows * config.data.val_size)
+        expected_test = int(n_rows * config.data.test_size)
         
         assert abs(len(X_train) - expected_train) <= 1, \
             f"Expected ~{expected_train} train rows, got {len(X_train)}"
@@ -504,3 +508,79 @@ class TestFeaturize:
         # by comparing to the params.yaml column count expectation if needed.
         # For now, just verify the feature count is plausible (> 0)
         assert X_train.shape[1] > 0, f"X_train should have features, got shape {X_train.shape}"
+
+    def test_leakage_guard_raises_on_forbidden_in_features(self):
+        """Featurizer raises ValueError if a forbidden column is requested as a feature."""
+        from src.featurize.featurizer import Featurizer
+        with pytest.raises(ValueError, match="leakage"):
+            Featurizer(
+                feature_cols=["NUMOFUNINJ", "WEATHER"],
+                numeric_cols=[],
+                target_col="CRASHSEVER",
+                train_size=0.6,
+                val_size=0.2,
+                test_size=0.2,
+                random_state=42,
+                forbidden_columns=["NUMOFUNINJ"]
+            )
+
+    def test_danger_index_columns_absent_when_disabled(self):
+        """When danger_index_features=False, X_train shape matches raw features count."""
+        from src.featurize.featurizer import Featurizer
+        df = pd.read_csv("data/processed/raw.csv", nrows=100)
+        
+        # Get baseline features from a default run
+        f_disabled = Featurizer(
+            feature_cols=["WEATHER", "SPEEDLIMIT", "DRIVER1AGE"],
+            numeric_cols=["SPEEDLIMIT", "DRIVER1AGE"],
+            target_col="CRASHSEVER",
+            train_size=0.6,
+            val_size=0.2,
+            test_size=0.2,
+            random_state=42,
+            danger_index_features=False
+        )
+        res_disabled = f_disabled.fit_transform(df)
+        assert res_disabled.X_train.shape[1] == 3
+
+    def test_danger_index_columns_present_when_enabled(self):
+        """When danger_index_features=True, X_train shape increases by +2, dropping NUMOFVEHIC."""
+        from src.featurize.featurizer import Featurizer
+        df = pd.read_csv("data/processed/raw.csv", nrows=100)
+        # Ensure NUMOFVEHIC is in the dataframe for engineering
+        if "NUMOFVEHIC" not in df.columns:
+            df["NUMOFVEHIC"] = 1
+        
+        f_enabled = Featurizer(
+            feature_cols=["WEATHER", "SPEEDLIMIT", "DRIVER1AGE", "NUMOFVEHIC"],
+            numeric_cols=["SPEEDLIMIT", "DRIVER1AGE", "NUMOFVEHIC"],
+            target_col="CRASHSEVER",
+            train_size=0.6,
+            val_size=0.2,
+            test_size=0.2,
+            random_state=42,
+            danger_index_features=True
+        )
+        res_enabled = f_enabled.fit_transform(df)
+        # 4 original - 1 (NUMOFVEHIC) + 2 (danger index) = 5
+        assert res_enabled.X_train.shape[1] == 5
+
+    def test_leakage_columns_never_in_output(self):
+        """NUMOFVEHIC is consumed by _compute_danger_index and absent from feature_cols output."""
+        from src.featurize.featurizer import Featurizer
+        df = pd.read_csv("data/processed/raw.csv", nrows=100)
+        f = Featurizer(
+            feature_cols=["WEATHER", "SPEEDLIMIT", "DRIVER1AGE", "NUMOFVEHIC"],
+            numeric_cols=["SPEEDLIMIT", "DRIVER1AGE", "NUMOFVEHIC"],
+            target_col="CRASHSEVER",
+            train_size=0.6,
+            val_size=0.2,
+            test_size=0.2,
+            random_state=42,
+            danger_index_features=True,
+        )
+        res = f.fit_transform(df)
+        assert "NUMOFVEHIC" not in res.feature_cols, \
+            "NUMOFVEHIC must be consumed by danger index computation, not passed to ColumnTransformer"
+        assert res.X_train.shape[1] == 5, \
+            "Expected 4 raw - 1 (NUMOFVEHIC consumed) + 2 (solo_highspeed, vulnerability_interaction) = 5"

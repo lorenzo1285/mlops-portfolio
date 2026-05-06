@@ -57,3 +57,73 @@ def compute_class_weights(y: np.ndarray, n_classes: int) -> np.ndarray:
         count = (y == c).sum()
         weights[c] = n / (n_classes * count) if count > 0 else 0.0
     return weights
+
+
+def focal_loss_grad_hess(
+    gamma: float = 2.0,
+    alpha: np.ndarray | None = None,
+) -> callable:
+    """Multi-class focal loss for XGBoost (Softmax).
+
+    FL(p) = -α (1-p)ᵞ log(p)
+
+    Args:
+        gamma: Focusing parameter. Higher gamma = more focus on hard samples.
+        alpha: Class weights (N_classes,). Defaults to 1.0 for all classes.
+
+    Returns:
+        A callable compatible with XGBoost's objective parameter.
+    """
+
+    def focal_loss_obj(y_true: np.ndarray, y_pred: np.ndarray, sample_weight=None):
+        # XGBoost may pass y_pred as flat (N*K,) or 2D (N, K) depending on version
+        n_samples = len(y_true)
+        if y_pred.ndim == 1:
+            n_classes = len(y_pred) // n_samples
+            y_pred = y_pred.reshape(n_samples, n_classes)
+        else:
+            n_classes = y_pred.shape[1]
+
+        # Softmax to get probabilities
+        exp_preds = np.exp(y_pred - np.max(y_pred, axis=1, keepdims=True))
+        probs = exp_preds / np.sum(exp_preds, axis=1, keepdims=True)
+
+        # One-hot encode y_true
+        y_onehot = np.zeros_like(probs)
+        y_onehot[np.arange(n_samples), y_true.astype(int)] = 1.0
+
+        # Focal Loss derivatives
+        # Gradient: ∂FL/∂z = (1-p)ᵞ [ γ p log(p) + p - 1 ] ... simplified for softmax
+        # We use the standard softmax gradient (p - y) and scale it by the focal term
+        # (1-p)ᵞ is the modulating factor
+        
+        # Predicted probability for the true class
+        pt = np.sum(y_onehot * probs, axis=1, keepdims=True)
+        
+        # Modulating factor
+        mod = (1.0 - pt) ** gamma
+        
+        # Gradient
+        grad = mod * (probs - y_onehot)
+        
+        # Add gamma term for harder samples
+        # ∂FL/∂z = mod * (probs - y_onehot) * (1 + gamma * (1-pt) * log(pt)) is complex
+        # A common robust approximation used in practice for multi-class XGBoost:
+        if gamma > 0:
+            # Scale gradient by focusing term
+            grad = mod * (probs - y_onehot) * (gamma * (1 - pt) + 1)
+
+        # Hessian (approximation)
+        # Standard softmax hessian is p(1-p), scaled by modulation
+        hess = mod * probs * (1.0 - probs) * (gamma * (1 - pt) + 1)
+        
+        if alpha is not None:
+            # Apply class weights
+            weights = alpha[y_true.astype(int)].reshape(-1, 1)
+            grad *= weights
+            hess *= weights
+
+        # XGBoost 2.1.0+ requires (n_samples, n_classes) shape
+        return grad, hess
+
+    return focal_loss_obj

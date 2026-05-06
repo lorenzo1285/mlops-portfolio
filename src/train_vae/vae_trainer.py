@@ -278,12 +278,21 @@ class DVAETrainer:
             # Training loop
             for epoch in range(self._vae_config.epochs):
                 # Compute KL annealing beta for this epoch
-                beta_t = min(
-                    self._vae_config.beta_max,
-                    self._vae_config.beta_start + 
-                    (self._vae_config.beta_max - self._vae_config.beta_start) * 
-                    epoch / max(1, self._vae_config.warmup_epochs)
-                )
+                if self._vae_config.cyclical_annealing:
+                    # Cyclical schedule: β resets to 0 every cycle_epochs
+                    epoch_in_cycle = epoch % self._vae_config.cycle_epochs
+                    beta_t = self._vae_config.beta_max * min(
+                        1.0,
+                        epoch_in_cycle / max(1, self._vae_config.warmup_epochs)
+                    )
+                else:
+                    # Monotonic schedule: β ramps from beta_start to beta_max once
+                    beta_t = min(
+                        self._vae_config.beta_max,
+                        self._vae_config.beta_start + 
+                        (self._vae_config.beta_max - self._vae_config.beta_start) * 
+                        epoch / max(1, self._vae_config.warmup_epochs)
+                    )
                 
                 # Train
                 model.train()

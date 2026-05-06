@@ -68,16 +68,17 @@ def main() -> None:
         print(f"       fatal recall = {result.ml_mean_fatal_recall:.4f}")
         print(f"  DL:  macro F1 = {result.dl_mean_f1:.4f} (95% CI: [{result.dl_ci_low:.4f}, {result.dl_ci_high:.4f}])")
         print(f"       fatal recall = {result.dl_mean_fatal_recall:.4f}")
-        print(f"\nConstitutional Gates: {'✅ PASS' if result.gates_passed else '❌ FAIL'}")
-        
+        gate_label = "[PASS]" if result.gates_passed else "[FAIL]"
+        print(f"\nConstitutional Gates: {gate_label}")
+
         if not result.gates_passed:
             winner_f1 = result.ml_mean_f1 if result.winner == "ml" else result.dl_mean_f1
             winner_recall = result.ml_mean_fatal_recall if result.winner == "ml" else result.dl_mean_fatal_recall
-            
+
             if winner_f1 <= config.model.macro_f1_threshold:
-                print(f"  ❌ Winner macro F1 ({winner_f1:.4f}) ≤ threshold ({config.model.macro_f1_threshold})")
+                print(f"  [FAIL] Winner macro F1 ({winner_f1:.4f}) <= threshold ({config.model.macro_f1_threshold})")
             if winner_recall <= config.model.fatal_recall_threshold:
-                print(f"  ❌ Winner fatal recall ({winner_recall:.4f}) ≤ threshold ({config.model.fatal_recall_threshold})")
+                print(f"  [FAIL] Winner fatal recall ({winner_recall:.4f}) <= threshold ({config.model.fatal_recall_threshold})")
         
         print(f"\nReports written:")
         print(f"  {report_path}")
@@ -85,9 +86,9 @@ def main() -> None:
         
         # Always exit 0 — tune stage will check gates_passed and decide whether to run HPO
         if not result.gates_passed:
-            print("\nGates failed — tune stage will run Optuna HPO")
+            print("\nGates failed - tune stage will run Optuna HPO")
         else:
-            print("\nGates passed — tune stage will skip HPO")
+            print("\nGates passed - tune stage will skip HPO")
     
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)

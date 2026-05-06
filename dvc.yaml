@@ -37,6 +37,8 @@ stages:
     params:
       - features.columns
       - features.numeric_columns
+      - features.danger_index_features
+      - features.forbidden_columns
       - features.target_column
       - features.ordinal_columns
       - features.cyclical_columns

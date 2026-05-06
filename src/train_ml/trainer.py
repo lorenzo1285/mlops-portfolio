@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import pickle
+
+import cloudpickle
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,7 +12,11 @@ import numpy as np
 from sklearn.metrics import f1_score
 from xgboost import XGBClassifier
 
-from src.metrics import compute_class_weights, per_class_matrix
+from src.metrics import (
+    compute_class_weights,
+    focal_loss_grad_hess,
+    per_class_matrix,
+)
 from src.plots import log_confusion_matrix, log_roc_curve
 
 _CLASS_NAMES = ["PDO", "Injury", "Fatal"]
@@ -112,14 +118,25 @@ class MLTrainer:
     ) -> MLTrainResult:
         """Train a single XGBoost model with given seed."""
         # Create XGBoost classifier
-        clf = XGBClassifier(
-            objective="multi:softprob",
-            num_class=self._model_config.n_classes,
-            random_state=seed,
-            early_stopping_rounds=10,
-            eval_metric="mlogloss",
-            verbosity=0,
-        )
+        clf_params = {
+            "random_state": seed,
+            "early_stopping_rounds": 10,
+            "num_class": self._model_config.n_classes,
+            "verbosity": 0,
+        }
+
+        if self._model_config.focal_loss_enabled:
+            alpha = compute_class_weights(y_train, self._model_config.n_classes)
+            clf_params["objective"] = focal_loss_grad_hess(
+                gamma=self._model_config.focal_loss_gamma,
+                alpha=alpha
+            )
+            clf_params["eval_metric"] = "merror"
+        else:
+            clf_params["objective"] = "multi:softprob"
+            clf_params["eval_metric"] = "mlogloss"
+
+        clf = XGBClassifier(**clf_params)
 
         active_run = mlflow.active_run()
         with mlflow.start_run(run_name=f"xgb_seed_{seed}", nested=active_run is not None) as run:
@@ -127,15 +144,21 @@ class MLTrainer:
             mlflow.set_tags({
                 "seed": str(seed),
                 "model_type": "xgboost",
+                "loss_type": "focal" if self._model_config.focal_loss_enabled else "ce",
             })
 
             # Log parameters
-            mlflow.log_params({
+            log_params = {
                 "seed": seed,
-                "objective": "multi:softprob",
-                "num_class": self._model_config.n_classes,
+                "objective": "focal_loss_grad_hess" if self._model_config.focal_loss_enabled else "multi:softprob",
                 "early_stopping_rounds": 10,
-            })
+            }
+            if not self._model_config.focal_loss_enabled:
+                log_params["num_class"] = self._model_config.n_classes
+            else:
+                log_params["focal_gamma"] = self._model_config.focal_loss_gamma
+            
+            mlflow.log_params(log_params)
 
             # Fit with sample weights and validation set
             clf.fit(
@@ -202,7 +225,7 @@ class MLTrainer:
             model_path = f"models/xgb_model_seed{seed}.pkl"
             Path("models").mkdir(exist_ok=True)
             with open(model_path, "wb") as f:
-                pickle.dump(clf, f)
+                cloudpickle.dump(clf, f)
 
             return MLTrainResult(
                 best_run_id=run.info.run_id,

@@ -53,6 +53,8 @@ class Featurizer:
         sample-complexity diagnostics.
     """
 
+    FORBIDDEN_COLUMNS = frozenset(["NUMOFKILL", "NUMOFINJ", "NUMOFUNINJ"])
+
     def __init__(
         self,
         feature_cols: list[str],
@@ -67,7 +69,16 @@ class Featurizer:
         ordinal_cols: dict[str, list[str]] | None = None,
         cyclical_cols: dict[str, int] | None = None,
         feature_selector: FeatureSelector | None = None,
+        danger_index_features: bool = False,
+        forbidden_columns: list[str] | None = None,
     ) -> None:
+        self._forbidden_columns = list(forbidden_columns) if forbidden_columns else list(self.FORBIDDEN_COLUMNS)
+        
+        # Guard: forbidden columns must never be in feature_cols
+        intersection = set(feature_cols) & set(self._forbidden_columns)
+        if intersection:
+            raise ValueError(f"Requested feature_cols contains forbidden leakage columns: {intersection}")
+
         self._feature_cols = feature_cols
         self._numeric_cols = numeric_cols
         self._ordinal_cols = dict(ordinal_cols) if ordinal_cols else {}
@@ -84,6 +95,7 @@ class Featurizer:
         self._sentinel_value = sentinel_value
         self._sentinel_cols = sentinel_cols or []
         self._feature_selector = feature_selector
+        self._danger_index_features = danger_index_features
 
     def fit_transform(self, df: pd.DataFrame) -> FeaturizeResult:
         df = self._select_and_recode(df)
@@ -123,13 +135,41 @@ class Featurizer:
 
     def _select_and_recode(self, df: pd.DataFrame) -> pd.DataFrame:
         all_cols = self._feature_cols + [self._target_col]
+        # Temporarily retain NUMOFVEHIC if needed for engineering
+        if self._danger_index_features and "NUMOFVEHIC" not in all_cols:
+            all_cols.append("NUMOFVEHIC")
+
         df = df[[c for c in all_cols if c in df.columns]].copy()
+
         if self._sentinel_value is not None:
             for col in self._sentinel_cols:
                 if col in df.columns:
                     df[col] = df[col].replace(self._sentinel_value, np.nan)
+        
+        if self._danger_index_features:
+            df = self._compute_danger_index(df)
+
         df = self._apply_cyclical(df)
         return df.dropna(subset=[self._target_col])
+
+    def _compute_danger_index(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Engineer safety-critical interaction features."""
+        # solo_highspeed: 1 if single vehicle crash at >= 45mph
+        if "NUMOFVEHIC" in df.columns and "SPEEDLIMIT" in df.columns:
+            df["solo_highspeed"] = ((df["NUMOFVEHIC"] == 1) & (df["SPEEDLIMIT"] >= 45)).astype(int)
+        
+        # vulnerability_interaction: 1 if young/old driver at > 40mph
+        if "DRIVER1AGE" in df.columns and "SPEEDLIMIT" in df.columns:
+            df["vulnerability_interaction"] = (
+                ((df["DRIVER1AGE"] < 25) | (df["DRIVER1AGE"] > 70)) & 
+                (df["SPEEDLIMIT"] > 40)
+            ).astype(int)
+        
+        # Drop NUMOFVEHIC - it is replaced by these interaction features (Fix C)
+        if "NUMOFVEHIC" in df.columns:
+            df = df.drop(columns=["NUMOFVEHIC"])
+            
+        return df
 
     def _apply_cyclical(self, df: pd.DataFrame) -> pd.DataFrame:
         """Apply sin/cos encoding to cyclical columns (HOUR, MONTH).
@@ -182,6 +222,12 @@ class Featurizer:
                 if f"{c}_cos" in df.columns:
                     feature_cols.append(f"{c}_cos")
         
+        # Add engineered features if enabled and present
+        if self._danger_index_features:
+            for eng_col in ["solo_highspeed", "vulnerability_interaction"]:
+                if eng_col in df.columns and eng_col not in feature_cols:
+                    feature_cols.append(eng_col)
+        
         X = df[feature_cols]
         y = df[self._target_col].map(_CRASHSEVER_MAP)
         return X, y
@@ -217,6 +263,11 @@ class Featurizer:
         
         # Separate numeric columns from cyclical sin/cos columns
         num = [c for c in self._numeric_cols if c in cols]
+
+        # Append engineered features to numeric group if present
+        for eng_col in ["solo_highspeed", "vulnerability_interaction"]:
+            if eng_col in cols and eng_col not in num:
+                num.append(eng_col)
         
         # Collect cyclical sin/cos columns
         cyc = []

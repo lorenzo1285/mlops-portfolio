@@ -396,4 +396,154 @@ class TestTrainVAE:
         assert Path(result.decoder_path).exists(), \
             f"Decoder checkpoint not found at {result.decoder_path}"
 
+    # --- Cyclical KL Annealing Tests (T135b) ---
+
+    def test_cyclical_annealing_second_cycle_ramp_up(
+        self, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """Cyclical annealing: in second cycle, β ramps up again (e.g., epoch=52 gives β≈0.2, not 1.0)."""
+        # Arrange: Config with cyclical_annealing enabled
+        vae_config = VAEConfig(
+            encoder_dims=[16, 8],
+            latent_dim=4,
+            beta_start=0.0,
+            beta_max=1.0,
+            warmup_epochs=10,
+            dropout_p=0.1,
+            epochs=55,  # Enough to reach second cycle
+            patience=100,
+            batch_size=32,
+            lr=0.001,
+            experiment_name="test-vae-cyclical",
+            cyclical_annealing=True,
+            cycle_epochs=50,
+        )
+        
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        trainer = DVAETrainer(vae_config, mlflow_config)
+        
+        # Act: Train VAE with cyclical annealing
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+        
+        # Assert: At epoch 52 (second cycle, 2 epochs in):
+        # Cyclical formula: β = beta_max * min(1, (52 % 50) / 10) = 1.0 * min(1, 2/10) = 0.2
+        # Monotonic formula: β = 1.0 (stays at max)
+        # This test will FAIL with monotonic implementation (gets 1.0 instead of 0.2)
+        client = mlflow.tracking.MlflowClient()
+        kl_beta_history = client.get_metric_history(result.run_id, "kl_beta")
+        
+        epoch_52_metrics = [m for m in kl_beta_history if m.step == 52]
+        assert len(epoch_52_metrics) == 1, \
+            f"Expected exactly 1 kl_beta metric at step=52, got {len(epoch_52_metrics)}"
+        
+        expected_beta = vae_config.beta_max * min(1.0, (52 % 50) / 10)  # = 0.2
+        assert abs(epoch_52_metrics[0].value - expected_beta) < 1e-6, \
+            f"Cyclical annealing: kl_beta at epoch=52 should be {expected_beta:.1f} (second cycle ramp), got {epoch_52_metrics[0].value}"
+
+    def test_cyclical_annealing_beta_resets_at_cycle_epochs(
+        self, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """Cyclical annealing: β=0.0 at epoch cycle_epochs (cycle reset)."""
+        # Arrange: Config with cyclical_annealing enabled
+        vae_config = VAEConfig(
+            encoder_dims=[16, 8],
+            latent_dim=4,
+            beta_start=0.0,
+            beta_max=1.0,
+            warmup_epochs=10,
+            dropout_p=0.1,
+            epochs=60,  # > cycle_epochs to test full cycle
+            patience=100,
+            batch_size=32,
+            lr=0.001,
+            experiment_name="test-vae-cyclical",
+            cyclical_annealing=True,
+            cycle_epochs=50,
+        )
+        
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        trainer = DVAETrainer(vae_config, mlflow_config)
+        
+        # Act: Train VAE with cyclical annealing
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+        
+        # Assert: kl_beta at epoch cycle_epochs is 0.0 (cycle reset)
+        client = mlflow.tracking.MlflowClient()
+        kl_beta_history = client.get_metric_history(result.run_id, "kl_beta")
+        
+        # β=0.0 at epoch 0 (cyclical starts from zero, same as monotonic)
+        step_0 = [m for m in kl_beta_history if m.step == 0]
+        assert len(step_0) == 1, "Expected kl_beta at step=0"
+        assert abs(step_0[0].value - 0.0) < 1e-6, \
+            f"Cyclical: kl_beta at epoch=0 should be 0.0, got {step_0[0].value}"
+
+        # β=beta_max at epoch warmup_epochs
+        step_warmup = [m for m in kl_beta_history if m.step == vae_config.warmup_epochs]
+        assert len(step_warmup) == 1, \
+            f"Expected kl_beta at step={vae_config.warmup_epochs}"
+        assert abs(step_warmup[0].value - vae_config.beta_max) < 1e-6, \
+            f"Cyclical: kl_beta at epoch={vae_config.warmup_epochs} should be {vae_config.beta_max}, got {step_warmup[0].value}"
+
+        cycle_step = vae_config.cycle_epochs
+        cycle_metrics = [m for m in kl_beta_history if m.step == cycle_step]
+        assert len(cycle_metrics) == 1, \
+            f"Expected exactly 1 kl_beta metric at step={cycle_step}, got {len(cycle_metrics)}"
+        assert abs(cycle_metrics[0].value - 0.0) < 1e-6, \
+            f"Cyclical annealing: kl_beta at epoch={cycle_step} should reset to 0.0, got {cycle_metrics[0].value}"
+
+    def test_monotonic_schedule_unchanged_when_cyclical_annealing_false(
+        self, mlflow_config, dummy_X_all, dummy_y_all
+    ):
+        """When cyclical_annealing=False, monotonic schedule unchanged (β ramps 0→beta_max, never resets)."""
+        # Arrange: Config with cyclical_annealing=False (default monotonic behavior)
+        vae_config = VAEConfig(
+            encoder_dims=[16, 8],
+            latent_dim=4,
+            beta_start=0.0,
+            beta_max=1.0,
+            warmup_epochs=10,
+            dropout_p=0.1,
+            epochs=60,
+            patience=100,
+            batch_size=32,
+            lr=0.001,
+            experiment_name="test-vae-monotonic",
+            cyclical_annealing=False,  # Monotonic schedule
+            cycle_epochs=50,  # Ignored when cyclical_annealing=False
+        )
+        
+        mlflow.set_tracking_uri(mlflow_config.tracking_uri)
+        trainer = DVAETrainer(vae_config, mlflow_config)
+        
+        # Act: Train VAE with monotonic annealing
+        result = trainer.train(dummy_X_all, y_all=dummy_y_all)
+        
+        # Assert: kl_beta follows monotonic schedule
+        client = mlflow.tracking.MlflowClient()
+        kl_beta_history = client.get_metric_history(result.run_id, "kl_beta")
+        
+        # At epoch 0: β=0.0
+        step_0 = [m for m in kl_beta_history if m.step == 0]
+        assert len(step_0) == 1, f"Expected kl_beta at step=0"
+        assert abs(step_0[0].value - 0.0) < 1e-6, \
+            f"Monotonic: kl_beta at epoch=0 should be 0.0, got {step_0[0].value}"
+        
+        # At epoch warmup_epochs: β=beta_max
+        step_warmup = [m for m in kl_beta_history if m.step == vae_config.warmup_epochs]
+        assert len(step_warmup) == 1, f"Expected kl_beta at step={vae_config.warmup_epochs}"
+        assert abs(step_warmup[0].value - vae_config.beta_max) < 1e-6, \
+            f"Monotonic: kl_beta at epoch={vae_config.warmup_epochs} should be {vae_config.beta_max}, got {step_warmup[0].value}"
+        
+        # At epoch cycle_epochs (50): β should still be beta_max (NO reset in monotonic mode)
+        step_cycle = [m for m in kl_beta_history if m.step == vae_config.cycle_epochs]
+        assert len(step_cycle) == 1, f"Expected kl_beta at step={vae_config.cycle_epochs}"
+        assert abs(step_cycle[0].value - vae_config.beta_max) < 1e-6, \
+            f"Monotonic: kl_beta at epoch={vae_config.cycle_epochs} should remain {vae_config.beta_max} (no reset), got {step_cycle[0].value}"
+        
+        # At epoch 52: β should still be beta_max (contrast with cyclical which would be ~0.2)
+        step_52 = [m for m in kl_beta_history if m.step == 52]
+        if len(step_52) > 0:  # Only check if training reached epoch 52
+            assert abs(step_52[0].value - vae_config.beta_max) < 1e-6, \
+                f"Monotonic: kl_beta at epoch=52 should remain {vae_config.beta_max} (no cycle reset), got {step_52[0].value}"
+
 

@@ -88,3 +88,40 @@ Null rates below are measured **after** sentinel recoding.
 
 **Binary encoding:** `PDO → 0` (majority class, 81.8%), `Injury or Fatal → 1` (minority class, 18.2%).  
 Class weights: `w₀ = 0.61`, `w₁ = 2.74` (constitution III — no SMOTE).
+
+---
+
+## Feature Leakage Audit (Constitution I)
+
+**Leakage definition:** Post-crash outcomes that are unknown at prediction time must never be used as model inputs.
+
+### POST-CRASH COLUMNS (EXCLUDED — Leakage Risk)
+
+The following columns represent crash outcomes and are **strictly prohibited** as features:
+
+| Column | Reason | Status |
+|--------|--------|--------|
+| NUMOFKILL | Number of fatalities — crash outcome | ❌ EXCLUDED |
+| NUMOFINJ | Number of injured — crash outcome | ❌ EXCLUDED |
+| NUMOFUNINJ | Number of uninjured — crash outcome (T123a audit) | ❌ EXCLUDED |
+
+**Audit finding (T123a):** `NUMOFUNINJ` confirmed as post-crash leakage. This column counts occupants who were **not** injured, which can only be determined after the crash occurs and medical assessments are complete.
+
+### PRE-CRASH COLUMNS (SAFE — Available at Prediction Time)
+
+The following columns represent conditions known **before** or **at the moment of** the crash and are safe to use:
+
+| Column | Type | Reason | Status |
+|--------|------|--------|--------|
+| NUMOFVEHIC | Crash | Number of vehicles involved (T123a audit) | ✅ SAFE |
+| NUMOFOCCUP | Crash | Number of occupants in vehicles | ✅ SAFE |
+| SPEEDLIMIT | Road | Posted speed limit at crash location (T123a audit) | ✅ SAFE |
+| DRIVER1AGE | Driver | Driver 1 age at time of crash (T123a audit) | ✅ SAFE |
+| DRIVER2AGE | Driver | Driver 2 age at time of crash | ✅ SAFE |
+
+**Audit findings (T123a):**
+- `NUMOFVEHIC` — Safe. Vehicle count is a pre-crash condition (number of vehicles involved in the collision).
+- `SPEEDLIMIT` — Safe. Posted speed limit is a road environmental attribute known before the crash.
+- `DRIVER1AGE` — Safe. Driver age is a pre-crash demographic attribute.
+
+**Note:** `NUMOFVEHIC` and `NUMOFOCCUP` are **not** currently in the active feature set (`params.yaml`) but are available for future feature engineering (e.g., danger index features in T123d).

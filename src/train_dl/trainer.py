@@ -12,6 +12,7 @@ from sklearn.metrics import f1_score
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.metrics import compute_class_weights, per_class_matrix
+from src.train_dl.losses import BalancedFocalLoss
 from src.plots import log_confusion_matrix, log_roc_curve
 
 _CLASS_NAMES = ["PDO", "Injury", "Fatal"]
@@ -116,7 +117,15 @@ class DLTrainer:
             n_classes=self._model_config.n_classes,
             dropout_p=self._dl_config.dropout_p,
         )
-        criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
+        
+        if self._dl_config.focal_loss_enabled:
+            criterion = BalancedFocalLoss(
+                gamma=self._dl_config.focal_loss_gamma,
+                weight=class_weights_tensor,
+            )
+        else:
+            criterion = nn.CrossEntropyLoss(weight=class_weights_tensor)
+        
         optimizer = torch.optim.Adam(model.parameters(), lr=self._dl_config.lr)
 
         train_loader = DataLoader(
@@ -138,7 +147,8 @@ class DLTrainer:
 
         active_run = mlflow.active_run()
         with mlflow.start_run(run_name=f"mlp_seed_{seed}", nested=active_run is not None) as run:
-            mlflow.log_params({
+            loss_function_name = "BalancedFocalLoss" if self._dl_config.focal_loss_enabled else "CrossEntropyLoss"
+            params = {
                 "seed": seed,
                 "input_dim": self._dl_config.input_dim,
                 "hidden_dim": self._dl_config.hidden_dim,
@@ -147,7 +157,11 @@ class DLTrainer:
                 "batch_size": self._dl_config.batch_size,
                 "epochs": self._dl_config.epochs,
                 "patience": self._dl_config.patience,
-            })
+                "loss_function": loss_function_name,
+            }
+            if self._dl_config.focal_loss_enabled:
+                params["focal_loss_gamma"] = self._dl_config.focal_loss_gamma
+            mlflow.log_params(params)
 
             best_val_loss = float("inf")
             best_epoch = 0
