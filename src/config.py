@@ -118,6 +118,10 @@ class OptunaSearchSpace:
     dropout_p_low: float
     dropout_p_high: float
     target_fatal_ratio_choices: list[float] = field(default_factory=lambda: [0.05, 0.10, 0.15, 0.20])
+    fatal_threshold_low: float = 0.02
+    fatal_threshold_high: float = 0.20
+    focal_loss_gamma_low: float = 0.5
+    focal_loss_gamma_high: float = 5.0
 
 
 @dataclass

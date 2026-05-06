@@ -179,25 +179,25 @@ class Featurizer:
             - Create {col}_cos = cos(2π × value / period)
             - Drop original column
         """
-        # Month name to integer mapping
         _MONTH_MAP = {
             "January": 1, "February": 2, "March": 3, "April": 4,
             "May": 5, "June": 6, "July": 7, "August": 8,
             "September": 9, "October": 10, "November": 11, "December": 12
         }
-        
+        _DAYOFWEEK_MAP = {
+            "Monday": 0, "Tuesday": 1, "Wednesday": 2, "Thursday": 3,
+            "Friday": 4, "Saturday": 5, "Sunday": 6
+        }
+
         for col, period in self._cyclical_cols.items():
             if col not in df.columns:
                 continue
-            
-            # Handle MONTH name to integer conversion
+
             if col == "MONTH":
-                # Map month names to integers (1-12)
-                values = df[col].map(_MONTH_MAP)
-                # Convert to 0-11 for proper periodicity
-                values = values - 1
+                values = df[col].map(_MONTH_MAP) - 1
+            elif col == "DAYOFWEEK":
+                values = df[col].map(_DAYOFWEEK_MAP)
             else:
-                # For HOUR and other numeric columns, just convert to numeric
                 values = pd.to_numeric(df[col], errors='coerce')
             
             # Compute sin and cos transformations

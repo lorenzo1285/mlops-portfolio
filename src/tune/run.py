@@ -86,6 +86,10 @@ def main() -> None:
         params.setdefault("augment", {})
         params["augment"]["target_fatal_ratio"] = result.best_params["target_fatal_ratio"]
 
+        params.setdefault("model", {})
+        params["model"]["fatal_threshold"] = result.best_params["fatal_threshold"]
+        params["model"]["focal_loss_gamma"] = result.best_params["focal_loss_gamma"]
+
         with open(params_path, "w") as f:
             yaml.dump(params, f, default_flow_style=None, sort_keys=False)
 

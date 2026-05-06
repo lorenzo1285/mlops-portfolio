@@ -98,24 +98,31 @@ class ABEvaluator:
         )
 
     def _get_metrics(self, experiment_name: str) -> tuple[np.ndarray, np.ndarray]:
-        """Query MLflow for eout_macro_f1 and eout_fatal_recall from all runs."""
+        """Query MLflow for eout_macro_f1 and eout_fatal_recall from the most recent seed runs."""
         exp = mlflow.get_experiment_by_name(experiment_name)
         if exp is None:
             raise ValueError(f"Experiment '{experiment_name}' not found in MLflow")
-        
+
+        n_seeds = len(self._ab_test_config.seeds)
         runs = mlflow.search_runs(
             experiment_ids=[exp.experiment_id],
             filter_string="status = 'FINISHED'",
             output_format="pandas",
+            order_by=["start_time DESC"],
+            max_results=n_seeds,
         )
-        
+
         if runs.empty:
             raise ValueError(f"No finished runs found in experiment '{experiment_name}'")
-        
-        f1_values = runs["metrics.eout_macro_f1"].values
-        recall_values = runs["metrics.eout_fatal_recall"].values
-        
-        return f1_values, recall_values
+
+        f1_col = "metrics.eout_macro_f1"
+        recall_col = "metrics.eout_fatal_recall"
+        runs = runs.dropna(subset=[f1_col, recall_col])
+
+        if runs.empty:
+            raise ValueError(f"No runs with complete metrics in experiment '{experiment_name}'")
+
+        return runs[f1_col].values, runs[recall_col].values
 
     def _cohens_d(self, x: np.ndarray, y: np.ndarray) -> float:
         """Compute Cohen's d effect size."""

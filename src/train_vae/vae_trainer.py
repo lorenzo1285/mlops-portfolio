@@ -349,13 +349,20 @@ class DVAETrainer:
                     if optuna_trial.should_prune():
                         raise optuna.TrialPruned()
                 
-                # Early stopping check
+                # Early stopping — patience only counted after warmup to avoid false
+                # triggers while KL beta is still rising (ELBO naturally increases
+                # during annealing even as the model improves).
+                warmup_threshold = (
+                    self._vae_config.cycle_epochs
+                    if self._vae_config.cyclical_annealing
+                    else self._vae_config.warmup_epochs
+                )
+
                 if val_loss < best_val_elbo:
                     best_val_elbo = val_loss
                     best_epoch = epoch
                     patience_counter = 0
-                    
-                    # Save best checkpoints
+
                     torch.save(
                         {
                             "state_dict": model.encoder.state_dict(),
@@ -365,7 +372,6 @@ class DVAETrainer:
                         },
                         encoder_path,
                     )
-                    
                     torch.save(
                         {
                             "state_dict": model.decoder.state_dict(),
@@ -375,7 +381,7 @@ class DVAETrainer:
                         },
                         decoder_path,
                     )
-                else:
+                elif epoch >= warmup_threshold:
                     patience_counter += 1
                     if patience_counter >= self._vae_config.patience:
                         print(f"Early stopping at epoch {epoch}")

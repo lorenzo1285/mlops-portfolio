@@ -21,7 +21,8 @@ from src.tune.tuner import TuneResult
 class OptunaTuner:
     """Optuna-based VAE hyperparameter optimization with early pruning.
 
-    Optimizes 5 VAE hyperparameters (beta_max, latent_dim, warmup_epochs, lr, dropout_p)
+    Optimizes VAE hyperparameters (beta_max, latent_dim, warmup_epochs, lr, dropout_p),
+    augmentation ratio, fatal prediction threshold, and focal loss gamma jointly
     using TPE sampler and median pruner. Each trial trains VAE → encodes data → trains
     classifier → evaluates on validation set.
 
@@ -110,6 +111,12 @@ class OptunaTuner:
         target_fatal_ratio = trial.suggest_categorical(
             "target_fatal_ratio", search_space.target_fatal_ratio_choices,
         )
+        fatal_threshold = trial.suggest_float(
+            "fatal_threshold", search_space.fatal_threshold_low, search_space.fatal_threshold_high,
+        )
+        focal_loss_gamma = trial.suggest_float(
+            "focal_loss_gamma", search_space.focal_loss_gamma_low, search_space.focal_loss_gamma_high,
+        )
 
         trial_vae_config = replace(
             self._vae_config,
@@ -118,6 +125,11 @@ class OptunaTuner:
             warmup_epochs=warmup_epochs,
             lr=lr,
             dropout_p=dropout_p,
+        )
+        trial_model_config = replace(
+            self._model_config,
+            fatal_threshold=fatal_threshold,
+            focal_loss_gamma=focal_loss_gamma,
         )
 
         X_train_aug, y_train_aug = self._augmented_data[target_fatal_ratio]
@@ -140,6 +152,8 @@ class OptunaTuner:
                 "lr": lr,
                 "dropout_p": dropout_p,
                 "target_fatal_ratio": target_fatal_ratio,
+                "fatal_threshold": fatal_threshold,
+                "focal_loss_gamma": focal_loss_gamma,
             })
 
             try:
@@ -170,7 +184,7 @@ class OptunaTuner:
                 # Train classifier on latent space (single seed for speed)
                 ml_trainer = MLTrainer(
                     mlflow_config=self._mlflow_config,
-                    model_config=self._model_config,
+                    model_config=trial_model_config,
                     seeds=[0],  # Single seed for fast trials
                 )
                 ml_result = ml_trainer.train(
@@ -251,6 +265,8 @@ class OptunaTuner:
                 "lr": best_trial.params["lr"],
                 "dropout_p": best_trial.params["dropout_p"],
                 "target_fatal_ratio": best_trial.params["target_fatal_ratio"],
+                "fatal_threshold": best_trial.params["fatal_threshold"],
+                "focal_loss_gamma": best_trial.params["focal_loss_gamma"],
             },
             best_value=best_trial.value,
             n_trials=len(study.trials),

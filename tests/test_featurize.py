@@ -216,55 +216,46 @@ class TestFeaturize:
         transformer_names = [name for name, _, _ in transformer.transformers_]
         assert "num" in transformer_names, "Missing 'num' transformer group"
         assert "cat" in transformer_names, "Missing 'cat' transformer group"
-        assert "ord" in transformer_names, "Missing 'ord' transformer group"
+        assert "cyc" in transformer_names, "Missing 'cyc' transformer group"
 
-    def test_ordinal_encoding_dayofweek(self, tmp_path):
-        """Ordinal group encodes DAYOFWEEK as Mon=0, Tue=1, ..., Sun=6."""
-        # Arrange: Use ingest output (constitution XVI)
+    def test_cyclical_encoding_dayofweek(self, tmp_path):
+        """DAYOFWEEK is encoded as sin/cos pair (period=7); no ordinal group in pipeline."""
         input_csv = Path("data/processed/raw.csv")
         output_dir = tmp_path / "arrays"
         pipeline_path = tmp_path / "preprocessing_pipeline.joblib"
-        
+
         assert input_csv.exists(), f"Ingest output not found at {input_csv}"
-        
-        # Act
+
         env = os.environ.copy()
         env["INPUT_PATH"] = str(input_csv)
         env["OUTPUT_DIR"] = str(output_dir)
         env["PIPELINE_PATH"] = str(pipeline_path)
-        
+
         result = subprocess.run(
             ["uv", "run", "python", "-m", "src.featurize.run"],
             env=env,
             capture_output=True,
             text=True,
         )
-        
-        # Assert: Check that ordinal encoding is correct
+
         assert result.returncode == 0
         pipeline = joblib.load(pipeline_path)
-        
-        # Get the ordinal encoder from the pipeline
+
         transformer = pipeline if isinstance(pipeline, ColumnTransformer) else pipeline.named_steps['preprocessor']
-        ord_transformer = None
-        for name, trans, cols in transformer.transformers_:
-            if name == "ord":
-                ord_transformer = trans
+        transformer_names = [name for name, _, _ in transformer.transformers_]
+
+        # DAYOFWEEK is now cyclical — no ordinal group should exist
+        assert "ord" not in transformer_names, "Ordinal group should be absent after DAYOFWEEK→cyclical migration"
+
+        # cyc group should cover DAYOFWEEK_sin, DAYOFWEEK_cos, HOUR_sin, HOUR_cos, MONTH_sin, MONTH_cos
+        cyc_cols = None
+        for name, _, cols in transformer.transformers_:
+            if name == "cyc":
+                cyc_cols = cols
                 break
-        
-        assert ord_transformer is not None, "Ordinal transformer not found"
-        
-        # Check categories - should have DAYOFWEEK categories defined
-        # OrdinalEncoder stores categories_ after fitting
-        if hasattr(ord_transformer, 'named_steps'):
-            encoder = ord_transformer.named_steps['encoder']
-        else:
-            # Find OrdinalEncoder in the pipeline
-            encoder = ord_transformer[-1] if hasattr(ord_transformer, '__getitem__') else ord_transformer
-        
-        # Verify Monday=0, Sunday=6 (semantic ordering)
-        # This is verified by checking the categories order in params.yaml
-        assert hasattr(encoder, 'categories_'), "OrdinalEncoder not fitted"
+        assert cyc_cols is not None, "cyc transformer group not found"
+        assert "DAYOFWEEK_sin" in cyc_cols
+        assert "DAYOFWEEK_cos" in cyc_cols
 
     def test_feature_selection_mutual_info(self, tmp_path):
         """When feature_selection.method='mutual_info', X_train.shape[1]==n_features."""

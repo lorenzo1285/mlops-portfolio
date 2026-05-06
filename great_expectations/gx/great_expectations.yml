@@ -87,11 +87,11 @@ fluent_datasources:
     assets:
       crash_data_asset:
         type: dataframe
-        id: 29d27dbd-8b88-4e7c-be39-0f4ad9c10437
+        id: d8b6c6f4-c471-412e-a9c8-4654295be21d
         batch_metadata: {}
         batch_definitions:
           crash_data_asset_batch_def:
-            id: 3d55e5ec-3132-4ce8-b4a7-674ececac248
+            id: fafb2a72-2584-4758-b6f2-497ec5672d22
             partitioner:
 analytics_enabled:
 data_context_id: d38ca632-e0b4-439d-998e-09e95a826de2

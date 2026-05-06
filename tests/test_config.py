@@ -42,21 +42,17 @@ class TestConfig:
         config = load_config()
 
         assert isinstance(config.features.ordinal_columns, dict)
-        assert "DAYOFWEEK" in config.features.ordinal_columns
-        # MONTH moved to cyclical_columns (T102) — no longer ordinal
+        # DAYOFWEEK and MONTH are now cyclical — neither should be ordinal
+        assert "DAYOFWEEK" not in config.features.ordinal_columns
         assert "MONTH" not in config.features.ordinal_columns
 
-        # DAYOFWEEK should have 7 days starting with Monday
-        days = config.features.ordinal_columns["DAYOFWEEK"]
-        assert len(days) == 7
-        assert days[0] == "Monday"
-        assert days[6] == "Sunday"
-
-        # MONTH and HOUR are cyclical — encoded as sin/cos pairs
+        # HOUR, MONTH, DAYOFWEEK are all cyclical
         assert "MONTH" in config.features.cyclical_columns
         assert "HOUR" in config.features.cyclical_columns
+        assert "DAYOFWEEK" in config.features.cyclical_columns
         assert config.features.cyclical_columns["MONTH"] == 12
         assert config.features.cyclical_columns["HOUR"] == 24
+        assert config.features.cyclical_columns["DAYOFWEEK"] == 7
 
 
 class TestMetrics:
