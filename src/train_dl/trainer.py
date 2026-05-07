@@ -67,7 +67,7 @@ class DLTrainer:
         Z_test: np.ndarray,
         y_test: np.ndarray,
     ) -> DLTrainResult:
-        """Train shallow MLP across N seeds; return best by eout_macro_f1."""
+        """Train shallow MLP across N seeds; return best by eval_macro_f1 (val F1)."""
         mlflow.autolog(disable=True)
 
         class_weights = compute_class_weights(y_train, n_classes=self._model_config.n_classes)
@@ -90,9 +90,10 @@ class DLTrainer:
                 y_test=y_test,
                 class_weights_tensor=class_weights_tensor,
             )
-            eout_f1 = mlflow.get_run(result.run_id).data.metrics["eout_macro_f1"]
-            if eout_f1 > best_f1:
-                best_f1 = eout_f1
+            # Track best seed by eval_macro_f1 (val) — constitution II compliance
+            eval_f1 = mlflow.get_run(result.run_id).data.metrics["eval_macro_f1"]
+            if eval_f1 > best_f1:
+                best_f1 = eval_f1
                 best_result = result
 
         return best_result
@@ -201,17 +202,20 @@ class DLTrainer:
                     if patience_counter >= self._dl_config.patience:
                         break
 
-            # Evaluate on test set
+            # Evaluate on train, val, and test sets
             model.eval()
             with torch.no_grad():
                 train_outputs = model(torch.tensor(Z_train, dtype=torch.float32))
+                val_outputs = model(torch.tensor(Z_val, dtype=torch.float32))
                 test_outputs = model(torch.tensor(Z_test, dtype=torch.float32))
                 y_train_pred = train_outputs.argmax(dim=1).numpy()
+                y_val_pred = val_outputs.argmax(dim=1).numpy()
                 y_test_pred = test_outputs.argmax(dim=1).numpy()
                 test_probs = torch.softmax(test_outputs, dim=1).numpy()
 
             # Mandatory metrics
             ein_macro_f1 = f1_score(y_train, y_train_pred, average="macro", zero_division=0)
+            eval_macro_f1 = f1_score(y_val, y_val_pred, average="macro", zero_division=0)
             eout_macro_f1 = f1_score(y_test, y_test_pred, average="macro", zero_division=0)
             fatal_mask = y_test == 2
             eout_fatal_recall = (
@@ -221,6 +225,7 @@ class DLTrainer:
 
             mlflow.log_metrics({
                 "ein_macro_f1": ein_macro_f1,
+                "eval_macro_f1": eval_macro_f1,
                 "eout_macro_f1": eout_macro_f1,
                 "eout_fatal_recall": eout_fatal_recall,
                 "generalisation_gap": ein_macro_f1 - eout_macro_f1,

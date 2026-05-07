@@ -90,10 +90,22 @@ class AugmentConfig:
 
 
 @dataclass
+class GMMConfig:
+    n_components: dict[int, int]
+    covariance_type: str
+    reg_covar: float
+    max_iter: int
+    n_init: int
+    fatal_prior_boost: float
+    experiment_name: str
+
+
+@dataclass
 class MLflowConfig:
     tracking_uri: str
     experiment_name_ml: str
     experiment_name_dl: str
+    experiment_name_gmm: str
     experiment_name_vae: str
     experiment_name_tune: str
     model_name: str
@@ -103,7 +115,7 @@ class MLflowConfig:
 class ABTestConfig:
     seeds: list[int]
     alpha: float
-    tiebreak: str
+    tiebreak: list[str]
 
 
 @dataclass
@@ -122,6 +134,8 @@ class OptunaSearchSpace:
     fatal_threshold_high: float = 0.20
     focal_loss_gamma_low: float = 0.5
     focal_loss_gamma_high: float = 5.0
+    fatal_prior_boost_low: float = 1.0
+    fatal_prior_boost_high: float = 5.0
 
 
 @dataclass
@@ -185,6 +199,7 @@ class ProjectConfig:
     vae: VAEConfig
     encode: EncodeConfig
     augment: AugmentConfig
+    gmm: GMMConfig
     mlflow: MLflowConfig
     ab_test: ABTestConfig
     tune: TuneConfig
@@ -212,10 +227,15 @@ def load_config(path: str | None = None) -> ProjectConfig:
     with open(path) as f:
         raw: dict[str, Any] = yaml.safe_load(f)
 
-    required = {"features", "data", "model", "dl", "vae", "augment", "mlflow", "ab_test", "tune", "great_expectations"}
+    required = {"features", "data", "model", "dl", "vae", "augment", "gmm", "mlflow", "ab_test", "tune", "great_expectations"}
     missing = required - raw.keys()
     if missing:
         raise KeyError(f"params.yaml missing required sections: {missing}")
+
+    # Convert YAML integer keys to Python int for gmm.n_components
+    gmm_raw = raw["gmm"].copy()
+    if "n_components" in gmm_raw:
+        gmm_raw["n_components"] = {int(k): v for k, v in gmm_raw["n_components"].items()}
 
     return ProjectConfig(
         features=FeaturesConfig(**raw["features"]),
@@ -225,6 +245,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
         vae=VAEConfig(**raw["vae"]),
         encode=EncodeConfig(**raw.get("encode", {"random_state": 42})),
         augment=AugmentConfig(**raw["augment"]),
+        gmm=GMMConfig(**gmm_raw),
         mlflow=MLflowConfig(**raw["mlflow"]),
         feature_selection=FeatureSelectionConfig(
             **raw.get("feature_selection", {})

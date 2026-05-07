@@ -177,6 +177,36 @@ stages:
     outs:
       - models/mlp_model.pth
 
+  train_gmm:
+    cmd: python -m src.train_gmm.run
+    deps:
+      - src/train_gmm/run.py
+      - src/train_gmm/trainer.py
+      - src/config.py
+      - src/metrics.py
+      - data/processed/Z_train_augmented.npy
+      - data/processed/y_train_augmented.npy
+      - data/processed/Z_val.npy
+      - data/processed/y_val.npy
+      - data/processed/Z_test.npy
+      - data/processed/y_test.npy
+    params:
+      - gmm.n_components
+      - gmm.covariance_type
+      - gmm.reg_covar
+      - gmm.max_iter
+      - gmm.n_init
+      - gmm.fatal_prior_boost
+      - gmm.experiment_name
+      - model.n_classes
+      - model.macro_f1_threshold
+      - model.fatal_recall_threshold
+      - mlflow.experiment_name_gmm
+      - mlflow.tracking_uri
+      - ab_test.seeds
+    outs:
+      - models/best_gmm_model.pkl
+
   evaluate:
     cmd: python -m src.evaluate.run
     deps:
@@ -185,12 +215,14 @@ stages:
       - src/config.py
       - models/best_ml_model.pkl
       - models/mlp_model.pth
+      - models/best_gmm_model.pkl
     params:
       - model.n_classes
       - model.macro_f1_threshold
       - model.fatal_recall_threshold
       - mlflow.experiment_name_ml
       - mlflow.experiment_name_dl
+      - mlflow.experiment_name_gmm
       - mlflow.tracking_uri
       - ab_test.alpha
       - ab_test.tiebreak

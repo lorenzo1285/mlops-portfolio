@@ -32,14 +32,27 @@ vae:
   cyclical_annealing: true
   cycle_epochs: 50
 augment: {tvae_epochs: 500, target_fatal_ratio: 0.2, random_state: 42}
-mlflow: {experiment_name_ml: crash-severity-ml, experiment_name_dl: crash-severity-dl,
-  experiment_name_vae: crash-severity-vae, experiment_name_tune: crash-severity-tune,
-  model_name: crash-severity, tracking_uri: mlruns/}
+gmm:
+  n_components: {0: 1, 1: 1, 2: 2}
+  covariance_type: full
+  reg_covar: 1.0e-6
+  max_iter: 100
+  n_init: 5
+  fatal_prior_boost: 1.0
+  experiment_name: crash-severity-gmm
+mlflow:
+  experiment_name_ml: crash-severity-ml
+  experiment_name_dl: crash-severity-dl
+  experiment_name_gmm: crash-severity-gmm
+  experiment_name_vae: crash-severity-vae
+  experiment_name_tune: crash-severity-tune
+  model_name: crash-severity
+  tracking_uri: mlruns/
 great_expectations: {suite_name: crash_data_suite, datasource_name: crash_data}
 ab_test:
   seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
   alpha: 0.05
-  tiebreak: ml
+  tiebreak: [ml, dl, gmm]
 feature_selection: {method: none, n_features: 10, threshold: 0.95}
 tune:
   experiment_name: vae-hyperparameter-tuning
@@ -66,6 +79,8 @@ tune:
       fatal_threshold_high: 0.2
       focal_loss_gamma_low: 0.5
       focal_loss_gamma_high: 5.0
+      fatal_prior_boost_low: 1.0
+      fatal_prior_boost_high: 5.0
 validation:
   columns:
     HOUR:

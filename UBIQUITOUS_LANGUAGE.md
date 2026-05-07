@@ -50,7 +50,7 @@
 | **CTGAN Augmentation** | The technique of fitting CTGAN/TVAE on real Fatal-class rows of `X_train` to generate synthetic Fatal-class feature rows, until Fatal reaches `augment.target_fatal_ratio`. Applied in the dedicated `augment` DVC stage on `X_train` only; `X_val` and `X_test` are never augmented (constitution III v3.3.0). | "SMOTE" (SMOTE interpolates in raw feature space — CTGAN learns the distribution), "LSA" (LSA was Z-space augmentation, now retired), "oversampling" |
 | **PDO** | Property Damage Only — crash severity class 0. Accidents with no injuries, representing approximately 81% of the dataset. | "no-injury", "class 0", "non-injury crash" |
 | **Injury** | Crash severity class 1. Accidents involving at least one injury but no fatalities, representing approximately 17.5% of the dataset. | "class 1", "non-fatal injury" |
-| **Fatal class** | Crash severity class 2. Accidents involving at least one fatality, representing approximately 1.7% of the dataset. The safety-critical minority class guarded by the fatal recall constitutional gate (> 0.30). | "fatal crash", "class 2", "fatality class" |
+| **Fatal class** | Crash severity class 2. Accidents involving at least one fatality, representing approximately 1.7% of the dataset. The safety-critical minority class guarded by the fatal recall constitutional gate (> 0.50). | "fatal crash", "class 2", "fatality class" |
 | **Class Weight** | A per-class scalar computed as `N / (n_classes × class_count_c)` from the training split class distribution. Applied during classifier training to compensate for class imbalance. Computed at runtime — never hardcoded. | "sample weight", "loss weight" (acceptable in code context where `weight=` is the argument name) |
 
 ## Experiment Tracking
