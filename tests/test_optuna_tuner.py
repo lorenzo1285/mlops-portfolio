@@ -172,6 +172,27 @@ def mock_ml_result():
 class TestOptunaTuner:
     """TDD tests for OptunaTuner class."""
 
+    @pytest.fixture(autouse=True)
+    def mock_ctgan_augmenter(self):
+        """Patch CTGANAugmenter so __init__ doesn't run TVAE against the test slice.
+
+        CTGANAugmenter.augment() is called eagerly in __init__ to pre-compute
+        augmented datasets. The test data slice has no Fatal (class 2) rows, which
+        triggers the n_fatal < 10 guard. Since all OptunaTuner tests mock MLTrainer
+        anyway, the augmenter output only needs to have the right array attributes.
+        Real pipeline artifacts are used per constitution XVIII.
+        """
+        X_aug = np.load(Path("data/processed") / "X_train_augmented.npy")[:50]
+        y_aug = np.load(Path("data/processed") / "y_train_augmented.npy")[:50]
+        mock_result = MagicMock()
+        mock_result.X_augmented = X_aug
+        mock_result.y_augmented = y_aug
+        with patch("src.tune.optuna_tuner.CTGANAugmenter") as MockAugmenter:
+            mock_instance = MagicMock()
+            mock_instance.augment.return_value = mock_result
+            MockAugmenter.return_value = mock_instance
+            yield MockAugmenter
+
     def test_optuna_tuner_tune_returns_tune_result(
         self,
         tune_cfg,
@@ -237,7 +258,7 @@ class TestOptunaTuner:
         mock_encode_result,
         mock_ml_result,
     ):
-        """best_params dict contains all 5 hyperparameters: beta_max, latent_dim, warmup_epochs, lr, dropout_p."""
+        """best_params dict contains all 8 tuned hyperparameters."""
         # Arrange
         from src.tune.optuna_tuner import OptunaTuner
         
@@ -267,8 +288,10 @@ class TestOptunaTuner:
             # Act
             result = tuner.tune()
             
-            # Assert: All 5 param keys present
-            expected_keys = {"beta_max", "latent_dim", "warmup_epochs", "lr", "dropout_p"}
+            expected_keys = {
+                "beta_max", "latent_dim", "warmup_epochs", "lr", "dropout_p",
+                "target_fatal_ratio", "fatal_threshold", "focal_loss_gamma",
+            }
             actual_keys = set(result.best_params.keys())
             assert actual_keys == expected_keys, \
                 f"Expected param keys {expected_keys}, got {actual_keys}"
@@ -371,7 +394,7 @@ class TestOptunaTuner:
         mock_vae_result,
         mock_encode_result,
     ):
-        """When eval_fatal_recall < 0.50, best_value is 0.5 × eval_macro_f1 (not full F1)."""
+        """val_fitness = 0.6 * eval_macro_f1 + 0.4 * eval_fatal_recall regardless of recall level."""
         from src.tune.optuna_tuner import OptunaTuner
 
         low_recall_result = MLTrainResult(
@@ -408,10 +431,10 @@ class TestOptunaTuner:
 
             result = tuner.tune()
 
-            expected_fitness = 0.70 * 0.5
+            expected_fitness = 0.6 * 0.70 + 0.4 * 0.30  # 0.54
             assert abs(result.best_value - expected_fitness) < 1e-6, (
-                f"Expected penalised fitness={expected_fitness:.4f} "
-                f"(eval_macro_f1=0.70 × 0.5), got {result.best_value:.4f}"
+                f"Expected composite fitness={expected_fitness:.4f} "
+                f"(0.6×0.70 + 0.4×0.30), got {result.best_value:.4f}"
             )
 
     def test_optuna_tuner_handles_trial_pruned_gracefully(

@@ -196,9 +196,7 @@ class OptunaTuner:
                     y_test=self._y_test,
                 )
 
-                # Penalise 50% if fatal recall gate missed (gate aligned with params.yaml)
-                recall_penalty = 1.0 if ml_result.eval_fatal_recall >= 0.35 else 0.5
-                val_fitness = ml_result.eval_macro_f1 * recall_penalty
+                val_fitness = 0.6 * ml_result.eval_macro_f1 + 0.4 * ml_result.eval_fatal_recall
 
                 # Log fitness
                 mlflow.log_metric("val_fitness", val_fitness)
