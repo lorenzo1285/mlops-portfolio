@@ -10,10 +10,10 @@ A 10-stage ML pipeline on the CGR crash dataset (Grand Rapids, 74,309 rows, 142 
 demonstrating the full MLOps toolchain: DVC, Great Expectations, MLflow, Kubeflow
 Pipelines, and Katib (HPO).
 
-Pipeline: `validate → ingest → featurize → [train_vae ‖ augment] → encode → [train_ml ‖ train_dl] → evaluate → tune → register`
+Pipeline: `validate → ingest → featurize → [train_vae ‖ augment] → encode → [train_ml ‖ train_dl ‖ train_gmm] → evaluate → tune → register`
 
 - `train_vae` and `augment` run in parallel (both depend only on featurize outputs)
-- `train_ml` and `train_dl` run in parallel (both depend on encode outputs)
+- `train_ml`, `train_dl`, and `train_gmm` run in parallel (all depend on encode outputs)
 - All other stages are sequential to avoid RAM contention on a single machine
 - All stages call `dvc repro <stage>` — both locally and as KFP components
 - **Class-based architecture**: each stage has a business-logic class and a thin `run.py` entry point that handles config, I/O, and MLflow logging only. Classes accept all parameters via constructor — no env var reads or file I/O inside them (constitution XIV)
@@ -73,7 +73,8 @@ Each stage: `<stage>/run.py` (thin entry point) + `<stage>/<module>.py` (busines
 | encode | `encoder.py` → `LatentEncoder` | Frozen encoder projects X_train_augmented + X_val/test → Z vectors (8-dim) |
 | train_ml | `trainer.py` → `MLTrainer` | XGBoost N seeds on Z_train_augmented; autolog disabled; save `.pkl` |
 | train_dl | `trainer.py` → `DLTrainer` | Shallow MLP N seeds on Z_train_augmented; cross-entropy + class weights; save `.pth` |
-| evaluate | `evaluator.py` → `ABEvaluator` | Welch's t-test on macro F1 distributions; assert constitutional gates |
+| train_gmm | `trainer.py` → `GMMTrainer` | Per-class GaussianMixture N seeds on Z_train_augmented; fatal_prior_boost; save `.pkl` |
+| evaluate | `evaluator.py` → `ABEvaluator` | 3-way Welch's t-tests (Bonferroni α/3) across ml/dl/gmm; assert constitutional gates |
 | tune | `tuner.py` → `HyperparamTuner` | Submit Katib β-HPO Experiment; poll completion; write best β to params.yaml |
 | register | `registrar.py` → `ModelRegistrar` | Promote champion to MLflow registry; write `registry_receipt.json` |
 

@@ -52,12 +52,13 @@
 | **Injury** | Crash severity class 1. Accidents involving at least one injury but no fatalities, representing approximately 17.5% of the dataset. | "class 1", "non-fatal injury" |
 | **Fatal class** | Crash severity class 2. Accidents involving at least one fatality, representing approximately 1.7% of the dataset. The safety-critical minority class guarded by the fatal recall constitutional gate (> 0.50). | "fatal crash", "class 2", "fatality class" |
 | **Class Weight** | A per-class scalar computed as `N / (n_classes × class_count_c)` from the training split class distribution. Applied during classifier training to compensate for class imbalance. Computed at runtime — never hardcoded. | "sample weight", "loss weight" (acceptable in code context where `weight=` is the argument name) |
+| **fatal_prior_boost** | A scalar multiplier (≥ 1.0) applied to the Fatal class prior in linear space before MAP scoring in `GMMClassifier`: `log(boost × P(Fatal))`. Values > 1.0 increase Fatal recall at the cost of PDO/Injury precision. Set in `params.yaml` under `gmm.fatal_prior_boost`; default 1.0 (no boost). | "prior weight", "GMM boost", "Fatal weight" |
 
 ## Experiment Tracking
 
 | Term | Definition | Aliases to avoid |
 |------|------------|------------------|
-| **Experiment** | An MLflow named experiment grouping all runs of one model family (`crash-severity-vae`, `crash-severity-ml`, `crash-severity-dl`, `crash-severity-tune`). | "project", "trial group" |
+| **Experiment** | An MLflow named experiment grouping all runs of one model family (`crash-severity-vae`, `crash-severity-ml`, `crash-severity-dl`, `crash-severity-gmm`, `crash-severity-tune`). | "project", "trial group" |
 | **Experiment Run** | A single training execution with logged parameters, metrics, and model artifact. Belongs to one Experiment. Tagged with `seed=<value>` and `model_type`. | "training run", "MLflow run" |
 | **Training Loop** | The N-seed iteration inside `train_ml` or `train_dl` that produces one Experiment Run per seed, each trained on Z_train_augmented. | "seed loop", "experiment loop" |
 | **HPO Trial** | A single hyperparameter configuration (one β value) evaluated as a Kubernetes pod during a Katib Experiment. Retrains the Denoising β-VAE, re-encodes, trains the winner classifier, and reports `val_macro_f1` to Katib. | "Optuna trial", "tune run", "search iteration" |
@@ -70,9 +71,10 @@
 | **VAE Artifact** | The pair of serialised files `models/vae_encoder.pth` + `models/vae_decoder.pth`. DVC-tracked output of the `train_vae` stage. | "VAE model", "VAE checkpoint" |
 | **Model Artifact** | A serialised trained classifier: `.pkl` for the XGBoost model, `.pth` for the MLP classifier. DVC-tracked output of a training stage. | "model", "checkpoint" (reserve for intermediate `.pth` saves during training) |
 | **MLP Classifier** | The shallow PyTorch MLP operating on Z vectors: `Linear(8, 64) → ReLU → Dropout(0.1) → Linear(64, 3)`. Produces 3-class predictions. Not to be confused with the Encoder or Decoder. | "ShallowMLP" (retired), "FlexMLP" (retired), "DL model", "neural network" |
+| **GMMClassifier** | The per-class Gaussian Mixture Model wrapper (`src/train_gmm/trainer.py`) that fits one `sklearn.GaussianMixture` per severity class and predicts by MAP scoring: `log-likelihood + log-prior + log(fatal_prior_boost)` for the Fatal class. Serialised to `models/best_gmm_model.pkl` via pickle. Not to be confused with sklearn's `GaussianMixture` directly — `GMMClassifier` adds the prior boost and the argmax dispatch. | "Gaussian mixture", "sklearn GMM", "density classifier" |
 | **Registered Model** | A model artifact promoted to the MLflow Model Registry, identified by name and alias (e.g. `models:/crash-severity@champion`). | "deployed model", "production model" |
 | **Champion** | The alias assigned to the winning Registered Model version in the MLflow Model Registry. | "best model", "winner model" |
-| **Winner** | The model family (ML/XGBoost or DL/MLP) declared superior by the statistical A/B test, or ML/XGBoost by default when p ≥ 0.05. | "best model", "champion model" (champion is the registry alias, winner is the A/B test outcome) |
+| **Winner** | The model family (ML/XGBoost, DL/MLP, or GMM) declared superior by the 3-way A/B/C test, or the first entry of `ab_test.tiebreak` when no pairwise difference is significant. | "best model", "champion model" (champion is the registry alias, winner is the A/B test outcome) |
 
 ## Data & Validation
 
@@ -91,9 +93,9 @@
 
 | Term | Definition | Aliases to avoid |
 |------|------------|------------------|
-| **A/B Test** | The Welch's t-test comparing the distribution of `eout_macro_f1` scores across all seeds for ML (XGBoost) vs DL (MLP). Produces p-value, Cohen's d, and 95% CIs. | "model comparison", "evaluation", "benchmark" |
-| **Generalisation Gap** | `eout_macro_f1 − ein_macro_f1`. Negative value indicates overfitting. Mandatory MLflow metric for every Experiment Run. | "gap", "train-test gap", "overfit score" |
-| **Fatal Recall Gate** | The constitutional requirement that the winner's fatal class recall exceeds 0.30 on Z_test. Blocks registration if not met. Complements the macro F1 gate (> 0.45). | "recall threshold", "minority recall" (retired — now specifically "fatal recall") |
+| **3-way A/B/C Test** | Three pairwise Welch's t-tests with Bonferroni correction (α/3 ≈ 0.017) comparing `eout_macro_f1` distributions across ML (XGBoost), DL (MLP), and GMM. Winner selection: build candidate set of classifiers significantly better than at least one other; pick highest mean F1 among candidates; tiebreak to `ab_test.tiebreak[0]` if no significant differences. Produces p-values, Cohen's d, and 95% CIs for all three pairs. | "A/B test" (use only for the 2-way historical variant), "model comparison", "evaluation", "benchmark" |
+| **Generalisation Gap** | `ein_macro_f1 − eout_macro_f1`. Positive value indicates overfitting. Mandatory MLflow metric for every Experiment Run. | "gap", "train-test gap", "overfit score" |
+| **Fatal Recall Gate** | The constitutional requirement that the winner's fatal class recall exceeds 0.50 on Z_test. Blocks registration if not met. Complements the macro F1 gate (> 0.35). | "recall threshold", "minority recall" (retired — now specifically "fatal recall") |
 
 ## Relationships
 
@@ -101,10 +103,10 @@
 - A **Pipeline Stage** is implemented as a **Stage Script**, wrapped as a **KFP Component**.
 - The `train_vae` stage produces a **VAE Artifact** (encoder + decoder). The `augment` stage generates `X_train_augmented` via **CTGAN Augmentation** in parallel with `train_vae`. The `encode` stage uses the frozen **Encoder** to project `X_train_augmented` → **Z_train_augmented**, and original `X_val`/`X_test` → **Z_val**/**Z_test**.
 - **CTGAN Augmentation** operates on `X_train` Fatal rows and produces `X_train_augmented`. **X_val** and **X_test** are never modified.
-- The **MLP Classifier** and **XGBoost** classifier both take **Z_train_augmented** as training input and **Z_test** as the final evaluation input.
+- The **MLP Classifier**, **XGBoost** classifier, and **GMMClassifier** all take **Z_train_augmented** as training input and **Z_test** as the final evaluation input.
 - A **Katib Experiment** runs N **HPO Trials**; each trial uses **Z_val** for fitness and logs one **Experiment Run** to `crash-severity-tune`.
-- An **A/B Test** compares `crash-severity-ml` vs `crash-severity-dl` **Experiments** and declares a **Winner**.
-- The **Winner** must pass the macro F1 gate (> 0.45) and the **Fatal Recall Gate** (> 0.30) before being registered as the **Champion** **Registered Model**.
+- The **3-way A/B/C Test** compares `crash-severity-ml`, `crash-severity-dl`, and `crash-severity-gmm` **Experiments** and declares a **Winner**.
+- The **Winner** must pass the macro F1 gate (> 0.35) and the **Fatal Recall Gate** (> 0.50) before being registered as the **Champion** **Registered Model**.
 
 ## Example Dialogue
 
@@ -136,3 +138,5 @@
 - **"FlexMLP"** and **"ShallowMLP"** are both retired. The current DL classifier is **MLP Classifier** — a fixed-architecture `Linear(32,64)→ReLU→Dropout→Linear(64,3)` operating on Z vectors. No NAS, no variable depth.
 - **"val_macro_f1" vs "eout_macro_f1"**: `val_macro_f1` is the Katib fitness metric computed on **Z_val** inside **HPO Trials**. `eout_macro_f1` is the final test metric computed on **Z_test** in the `evaluate` stage. These are different numbers from different data splits — never use them interchangeably.
 - **"minority class"** is retired as a standalone term. Now refers specifically to **Fatal class** (class 2). The **Fatal Recall Gate** replaces the generic "minority recall threshold".
+- **"A/B Test"** is now a 3-way comparison — always say **3-way A/B/C Test** to avoid confusion with legacy 2-way comparisons. The third branch is **GMM** (`crash-severity-gmm`).
+- **"GMMClassifier" vs "GaussianMixture"**: `GMMClassifier` is the project-specific wrapper in `src/train_gmm/trainer.py` that adds prior boost and argmax dispatch. `GaussianMixture` is the raw sklearn component inside it. Never use them interchangeably.

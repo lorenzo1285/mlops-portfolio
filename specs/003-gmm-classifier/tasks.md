@@ -115,8 +115,8 @@
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T026 [P] Update `UBIQUITOUS_LANGUAGE.md` with canonical terms: `GMMClassifier` (the pickled per-class wrapper, not sklearn's `GaussianMixture` directly), `fatal_prior_boost` (scalar log-prior multiplier for Fatal class at GMM prediction time; values > 1.0 increase Fatal recall), `3-way A/B/C test` (pairwise Welch's t-tests with Bonferroni correction across ml/dl/gmm)
-- [ ] T027 [P] Update `CLAUDE.md` pipeline description: add `train_gmm` to the parallel block alongside `train_ml ‖ train_dl`; add `train_gmm` row to the stage table (`trainer.py → GMMTrainer`); update evaluate row to note 3-way Bonferroni-corrected comparison
+- [x] T026 [P] Update `UBIQUITOUS_LANGUAGE.md` with canonical terms: `GMMClassifier` (the pickled per-class wrapper, not sklearn's `GaussianMixture` directly), `fatal_prior_boost` (scalar log-prior multiplier for Fatal class at GMM prediction time; values > 1.0 increase Fatal recall), `3-way A/B/C test` (pairwise Welch's t-tests with Bonferroni correction across ml/dl/gmm)
+- [x] T027 [P] Update `CLAUDE.md` pipeline description: add `train_gmm` to the parallel block alongside `train_ml ‖ train_dl`; add `train_gmm` row to the stage table (`trainer.py → GMMTrainer`); update evaluate row to note 3-way Bonferroni-corrected comparison
 
 ---
 
