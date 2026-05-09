@@ -23,6 +23,7 @@ from src.evaluate.evaluator import ABEvaluator, EvaluationResult
 
 _ML_EXP_ID = "1"
 _DL_EXP_ID = "2"
+_GMM_EXP_ID = "3"
 
 
 # ── DataFrame helpers ────────────────────────────────────────────────────────
@@ -53,6 +54,19 @@ def _dl_df(f1_values: list[float], recall_values: list[float]) -> pd.DataFrame:
     ])
 
 
+def _gmm_df(f1_values: list[float], recall_values: list[float]) -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "run_id": f"gmm_{i}",
+            "status": "FINISHED",
+            "metrics.eout_macro_f1": f1,
+            "metrics.eout_fatal_recall": recall,
+            "experiment_id": _GMM_EXP_ID,
+        }
+        for i, (f1, recall) in enumerate(zip(f1_values, recall_values))
+    ])
+
+
 def _search_runs_dispatch(ml_df: pd.DataFrame, dl_df: pd.DataFrame):
     """Return a mock for mlflow.search_runs that dispatches by experiment_ids."""
     def _search(experiment_ids, filter_string=None, **kwargs):
@@ -64,9 +78,29 @@ def _search_runs_dispatch(ml_df: pd.DataFrame, dl_df: pd.DataFrame):
     return _search
 
 
+def _search_runs_dispatch_3way(ml_df: pd.DataFrame, dl_df: pd.DataFrame, gmm_df: pd.DataFrame):
+    """Return a mock for mlflow.search_runs that dispatches by experiment_ids (3-way)."""
+    def _search(experiment_ids, filter_string=None, **kwargs):
+        if _ML_EXP_ID in experiment_ids:
+            return ml_df
+        if _DL_EXP_ID in experiment_ids:
+            return dl_df
+        if _GMM_EXP_ID in experiment_ids:
+            return gmm_df
+        return pd.DataFrame()
+    return _search
+
+
 def _mock_get_experiment_by_name(name: str):
     exp = MagicMock()
-    exp.experiment_id = _ML_EXP_ID if "ml" in name else _DL_EXP_ID
+    if "ml" in name:
+        exp.experiment_id = _ML_EXP_ID
+    elif "dl" in name:
+        exp.experiment_id = _DL_EXP_ID
+    elif "gmm" in name:
+        exp.experiment_id = _GMM_EXP_ID
+    else:
+        exp.experiment_id = _ML_EXP_ID  # fallback
     return exp
 
 
@@ -78,6 +112,7 @@ def mlflow_cfg():
         tracking_uri="mlruns/",
         experiment_name_ml="crash-severity-ml",
         experiment_name_dl="crash-severity-dl",
+        experiment_name_gmm="crash-severity-gmm",
         experiment_name_vae="crash-severity-vae",
         experiment_name_tune="crash-severity-tune",
         model_name="crash-severity",
@@ -86,7 +121,7 @@ def mlflow_cfg():
 
 @pytest.fixture
 def ab_cfg():
-    return ABTestConfig(seeds=[0, 1, 2], alpha=0.05, tiebreak="ml")
+    return ABTestConfig(seeds=[0, 1, 2], alpha=0.05, tiebreak=["ml", "dl", "gmm"])
 
 
 @pytest.fixture
@@ -134,7 +169,7 @@ class TestABEvaluatorGates:
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = evaluator.evaluate()
 
-        required = ("winner", "p_value", "cohens_d", "ml_mean_f1", "dl_mean_f1", "gates_passed")
+        required = ("winner", "p_value_ml_dl", "cohens_d_ml_dl", "ml_mean_f1", "dl_mean_f1", "gates_passed")
         for field in required:
             assert hasattr(result, field), f"EvaluationResult missing field: '{field}'"
 
@@ -239,9 +274,11 @@ class TestEvaluateRunScript:
                     "generalisation_gap": 0.05,
                 })
 
-    def test_run_exits_1_and_writes_report_when_gates_fail(self, tmp_path):
-        """run.py exits 1 and writes evaluation_report.json when gates fail.
+    def test_run_exits_0_and_writes_report_when_gates_fail(self, tmp_path):
+        """run.py exits 0 and writes evaluation_report.json with gates_passed=False.
 
+        run.py always exits 0 so DVC continues to tune; tune reads gates_passed
+        from evaluation_report.json to decide whether to run HPO.
         ML wins on F1 (0.41 > DL's 0.38) but fatal_recall 0.46 < 0.50 gate.
         """
         import subprocess
@@ -286,6 +323,8 @@ class TestEvaluateRunScript:
                 "batch_size": 256,
                 "lr": 0.001,
                 "experiment_name": "crash-severity-dl",
+                "focal_loss_enabled": False,
+                "focal_loss_gamma": 1.0,
             },
             "vae": {
                 "encoder_dims": [256, 128, 64],
@@ -305,11 +344,12 @@ class TestEvaluateRunScript:
                 "target_fatal_ratio": 0.05,
                 "random_state": 42,
             },
-            "ab_test": {"seeds": [0, 1, 2], "alpha": 0.05, "tiebreak": "ml"},
+            "ab_test": {"seeds": [0, 1, 2], "alpha": 0.05, "tiebreak": ["ml", "dl", "gmm"]},
             "mlflow": {
                 "tracking_uri": tracking_uri,
                 "experiment_name_ml": "crash-severity-ml",
                 "experiment_name_dl": "crash-severity-dl",
+                "experiment_name_gmm": "crash-severity-gmm",
                 "experiment_name_vae": "crash-severity-vae",
                 "experiment_name_tune": "crash-severity-tune",
                 "model_name": "crash-severity",
@@ -317,6 +357,38 @@ class TestEvaluateRunScript:
             "great_expectations": {
                 "suite_name": "crash_data_suite",
                 "datasource_name": "crash_data",
+            },
+            "gmm": {
+                "n_components": {0: 1, 1: 1, 2: 2},
+                "covariance_type": "full",
+                "reg_covar": 1.0e-6,
+                "max_iter": 100,
+                "n_init": 5,
+                "fatal_prior_boost": 1.0,
+                "experiment_name": "crash-severity-gmm",
+            },
+            "tune": {
+                "experiment_name": "vae-hyperparameter-tuning",
+                "max_trials": 15,
+                "namespace": "default",
+                "max_dl_trial_epochs": 50,
+                "optuna": {
+                    "n_trials": 30,
+                    "study_name": "vae-optuna-hpo",
+                    "direction": "maximize",
+                    "pruner": {"n_startup_trials": 5, "n_warmup_steps": 15},
+                    "search_space": {
+                        "beta_max_low": 0.01, "beta_max_high": 1.0,
+                        "latent_dim_choices": [8, 16, 32, 64],
+                        "warmup_epochs_low": 5, "warmup_epochs_high": 30,
+                        "lr_low": 0.0001, "lr_high": 0.001,
+                        "dropout_p_low": 0.05, "dropout_p_high": 0.3,
+                        "target_fatal_ratio_choices": [0.05, 0.1, 0.15, 0.2],
+                        "fatal_threshold_low": 0.02, "fatal_threshold_high": 0.2,
+                        "focal_loss_gamma_low": 0.5, "focal_loss_gamma_high": 5.0,
+                        "fatal_prior_boost_low": 1.0, "fatal_prior_boost_high": 5.0,
+                    },
+                },
             },
         }
         params_path = tmp_path / "params.yaml"
@@ -342,8 +414,8 @@ class TestEvaluateRunScript:
             text=True,
         )
 
-        assert result.returncode == 1, (
-            f"Expected exit 1 when gates fail, got {result.returncode}.\n"
+        assert result.returncode == 0, (
+            f"Expected exit 0 (tune stage reads gates_passed), got {result.returncode}.\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
 
@@ -354,7 +426,115 @@ class TestEvaluateRunScript:
         )
 
         report = json.loads(report_path.read_text())
-        for field in ("winner", "p_value", "cohens_d", "ml_mean_f1", "dl_mean_f1", "gates_passed"):
+        for field in ("winner", "p_value_ml_dl", "cohens_d_ml_dl", "ml_mean_f1", "dl_mean_f1", "gmm_mean_f1", "gates_passed"):
             assert field in report, f"evaluation_report.json missing field: '{field}'"
 
         assert report["gates_passed"] is False
+
+        ab_report_path = docs_dir / "ab_test_comparison.json"
+        assert ab_report_path.exists(), (
+            f"ab_test_comparison.json not written.\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        ab_report = json.loads(ab_report_path.read_text())
+        for field in ("winner", "p_value_ml_dl", "cohens_d_ml_dl", "ml_mean_f1", "dl_mean_f1", "gmm_mean_f1", "significant_ml_dl"):
+            assert field in ab_report, f"ab_test_comparison.json missing field: '{field}'"
+        assert "significant" not in ab_report, (
+            "ab_test_comparison.json has old 'significant' key — use 'significant_ml_dl'"
+        )
+
+
+# ── T014 RED test — 3-way A/B/C evaluation ───────────────────────────────────
+
+class TestThreeWayEvaluation:
+    """Boundary tests for 3-way A/B/C evaluation (ml vs dl vs gmm).
+
+    Tests verify EvaluationResult has fields for all three classifiers and
+    pairwise comparisons. Tests MUST fail until T015 extends EvaluationResult.
+    """
+
+    def test_result_has_gmm_fields(self, evaluator):
+        """EvaluationResult includes gmm_mean_f1, p_value_ml_gmm, p_value_dl_gmm, cohens_d_ml_gmm.
+
+        This test MUST fail because these fields do not exist yet.
+        """
+        ml = _ml_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
+        dl = _dl_df([0.46, 0.46, 0.46], [0.60, 0.60, 0.60])
+        gmm = _gmm_df([0.58, 0.59, 0.60], [0.62, 0.63, 0.64])  # GMM wins on F1
+
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
+            with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
+                result = evaluator.evaluate()
+
+        # Assert new GMM fields exist
+        assert hasattr(result, "gmm_mean_f1"), "EvaluationResult missing field: 'gmm_mean_f1'"
+        assert hasattr(result, "gmm_ci_low"), "EvaluationResult missing field: 'gmm_ci_low'"
+        assert hasattr(result, "gmm_ci_high"), "EvaluationResult missing field: 'gmm_ci_high'"
+        assert hasattr(result, "gmm_mean_fatal_recall"), "EvaluationResult missing field: 'gmm_mean_fatal_recall'"
+
+        # Assert pairwise p-values exist
+        assert hasattr(result, "p_value_ml_dl"), "EvaluationResult missing field: 'p_value_ml_dl' (renamed from p_value)"
+        assert hasattr(result, "p_value_ml_gmm"), "EvaluationResult missing field: 'p_value_ml_gmm'"
+        assert hasattr(result, "p_value_dl_gmm"), "EvaluationResult missing field: 'p_value_dl_gmm'"
+
+        # Assert pairwise Cohen's d exist
+        assert hasattr(result, "cohens_d_ml_dl"), "EvaluationResult missing field: 'cohens_d_ml_dl' (renamed from cohens_d)"
+        assert hasattr(result, "cohens_d_ml_gmm"), "EvaluationResult missing field: 'cohens_d_ml_gmm'"
+        assert hasattr(result, "cohens_d_dl_gmm"), "EvaluationResult missing field: 'cohens_d_dl_gmm'"
+
+    def test_winner_can_be_gmm(self, evaluator):
+        """Winner field accepts 'gmm' when GMM has highest mean F1 and is significantly better.
+
+        GMM mean F1 ≈ 0.59 >> ML ≈ 0.42 and DL ≈ 0.38. With 3 seeds, distributions
+        are well-separated → GMM should be significantly better than both → winner='gmm'.
+
+        This test MUST fail because evaluate() does not yet query GMM experiment or
+        run 3-way comparison logic.
+        """
+        ml = _ml_df([0.41, 0.42, 0.43], [0.55, 0.56, 0.57])
+        dl = _dl_df([0.37, 0.38, 0.39], [0.60, 0.61, 0.62])
+        gmm = _gmm_df([0.58, 0.59, 0.60], [0.62, 0.63, 0.64])  # clearly best
+
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
+            with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
+                result = evaluator.evaluate()
+
+        assert result.winner in {"ml", "dl", "gmm"}, (
+            f"Winner must be one of {{'ml', 'dl', 'gmm'}}, got '{result.winner}'"
+        )
+        assert result.winner == "gmm", (
+            f"Expected winner='gmm' when GMM F1 ≈ 0.59 >> ML ≈ 0.42 and DL ≈ 0.38, "
+            f"got winner='{result.winner}'"
+        )
+
+    def test_bonferroni_correction_applied(self, evaluator):
+        """3-way comparison uses Bonferroni-corrected alpha (α/3 ≈ 0.017).
+
+        When all three classifiers have similar F1 distributions, no pairwise
+        p-value should be < α/3 = 0.05/3 ≈ 0.017 → tiebreak applies.
+
+        This test MUST fail because evaluate() does not yet implement 3-way logic.
+        """
+        # All three have identical F1 distributions → p-values all ≈ 1.0
+        ml = _ml_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
+        dl = _dl_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
+        gmm = _gmm_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
+
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
+            with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
+                result = evaluator.evaluate()
+
+        # All pairwise p-values should be ≈ 1.0 (no difference)
+        alpha_bonf = 0.05 / 3.0
+        assert result.p_value_ml_dl >= alpha_bonf, (
+            f"Expected p_value_ml_dl >= {alpha_bonf} when distributions identical, "
+            f"got {result.p_value_ml_dl}"
+        )
+        assert result.p_value_ml_gmm >= alpha_bonf, (
+            f"Expected p_value_ml_gmm >= {alpha_bonf} when distributions identical, "
+            f"got {result.p_value_ml_gmm}"
+        )
+        assert result.p_value_dl_gmm >= alpha_bonf, (
+            f"Expected p_value_dl_gmm >= {alpha_bonf} when distributions identical, "
+            f"got {result.p_value_dl_gmm}"
+        )

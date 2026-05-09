@@ -70,8 +70,8 @@
 
 ### Slice A — EvaluationResult extension
 
-- [ ] T014 [US2] **[TDD-RED]** Write failing boundary test for extended `ABEvaluator.evaluate()` in `tests/test_evaluator.py`: mock MLflow `search_runs` to return synthetic per-seed F1/recall for all three experiments; assert `EvaluationResult` has fields `gmm_mean_f1`, `p_value_ml_gmm`, `p_value_dl_gmm`, `cohens_d_ml_gmm`, `winner` ∈ `{"ml","dl","gmm"}`. Test MUST fail (fields do not exist yet).
-- [ ] T015 [US2] **[TDD-GREEN]** Extend `EvaluationResult` dataclass in `src/evaluate/evaluator.py`: add `gmm_mean_f1: float`, `gmm_ci_low: float`, `gmm_ci_high: float`, `gmm_mean_fatal_recall: float`; rename `p_value → p_value_ml_dl`, `cohens_d → cohens_d_ml_dl`; add `p_value_ml_gmm: float`, `p_value_dl_gmm: float`, `cohens_d_ml_gmm: float`, `cohens_d_dl_gmm: float`.
+- [x] T014 [US2] **[TDD-RED]** Write failing boundary test for extended `ABEvaluator.evaluate()` in `tests/test_evaluator.py`: mock MLflow `search_runs` to return synthetic per-seed F1/recall for all three experiments; assert `EvaluationResult` has fields `gmm_mean_f1`, `p_value_ml_gmm`, `p_value_dl_gmm`, `cohens_d_ml_gmm`, `winner` ∈ `{"ml","dl","gmm"}`. Test MUST fail (fields do not exist yet).
+- [x] T015 [US2] **[TDD-GREEN]** Extend `EvaluationResult` dataclass in `src/evaluate/evaluator.py`: add `gmm_mean_f1: float`, `gmm_ci_low: float`, `gmm_ci_high: float`, `gmm_mean_fatal_recall: float`; rename `p_value → p_value_ml_dl`, `cohens_d → cohens_d_ml_dl`; add `p_value_ml_gmm: float`, `p_value_dl_gmm: float`, `cohens_d_ml_gmm: float`, `cohens_d_dl_gmm: float`.
 
 ### Slice B — ABEvaluator 3-way logic
 

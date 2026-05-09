@@ -9,18 +9,26 @@ from scipy import stats
 
 @dataclass
 class EvaluationResult:
-    winner: str                  # "ml" or "dl"
-    p_value: float
-    cohens_d: float
+    winner: str                      # "ml", "dl", or "gmm"
+    p_value_ml_dl: float             # pairwise ml vs dl
+    p_value_ml_gmm: float            # pairwise ml vs gmm
+    p_value_dl_gmm: float            # pairwise dl vs gmm
+    cohens_d_ml_dl: float            # effect size ml vs dl
+    cohens_d_ml_gmm: float           # effect size ml vs gmm
+    cohens_d_dl_gmm: float           # effect size dl vs gmm
     ml_mean_f1: float
     dl_mean_f1: float
+    gmm_mean_f1: float
     ml_ci_low: float
     ml_ci_high: float
     dl_ci_low: float
     dl_ci_high: float
+    gmm_ci_low: float
+    gmm_ci_high: float
     ml_mean_fatal_recall: float
     dl_mean_fatal_recall: float
-    gates_passed: bool           # True iff winner clears both constitutional thresholds
+    gmm_mean_fatal_recall: float
+    gates_passed: bool               # True iff winner clears both constitutional thresholds
 
 
 class ABEvaluator:
@@ -57,11 +65,11 @@ class ABEvaluator:
             # Statistically significant difference
             winner = "ml" if np.mean(ml_f1) > np.mean(dl_f1) else "dl"
         else:
-            # Not significant → apply tiebreak
-            winner = self._ab_test_config.tiebreak
+            # Not significant → apply tiebreak (use first in priority list)
+            winner = self._ab_test_config.tiebreak[0]
         
         # Compute Cohen's d
-        cohens_d = self._cohens_d(ml_f1, dl_f1)
+        cohens_d_ml_dl = self._cohens_d(ml_f1, dl_f1)
         
         # Compute 95% CIs
         ml_ci_low, ml_ci_high = self._confidence_interval(ml_f1)
@@ -73,9 +81,26 @@ class ABEvaluator:
         ml_mean_fatal_recall = float(np.mean(ml_recall))
         dl_mean_fatal_recall = float(np.mean(dl_recall))
         
+        # Placeholder GMM values (actual 3-way logic in T016)
+        gmm_mean_f1 = 0.0
+        gmm_ci_low = 0.0
+        gmm_ci_high = 0.0
+        gmm_mean_fatal_recall = 0.0
+        p_value_ml_gmm = 1.0
+        p_value_dl_gmm = 1.0
+        cohens_d_ml_gmm = 0.0
+        cohens_d_dl_gmm = 0.0
+        
         # Check constitutional gates on winner
-        winner_f1 = ml_mean_f1 if winner == "ml" else dl_mean_f1
-        winner_recall = ml_mean_fatal_recall if winner == "ml" else dl_mean_fatal_recall
+        if winner == "ml":
+            winner_f1 = ml_mean_f1
+            winner_recall = ml_mean_fatal_recall
+        elif winner == "dl":
+            winner_f1 = dl_mean_f1
+            winner_recall = dl_mean_fatal_recall
+        else:  # gmm
+            winner_f1 = gmm_mean_f1
+            winner_recall = gmm_mean_fatal_recall
         
         gates_passed = (
             winner_f1 > self._model_config.macro_f1_threshold
@@ -84,16 +109,24 @@ class ABEvaluator:
         
         return EvaluationResult(
             winner=winner,
-            p_value=float(p_value),
-            cohens_d=cohens_d,
+            p_value_ml_dl=float(p_value),
+            p_value_ml_gmm=p_value_ml_gmm,
+            p_value_dl_gmm=p_value_dl_gmm,
+            cohens_d_ml_dl=cohens_d_ml_dl,
+            cohens_d_ml_gmm=cohens_d_ml_gmm,
+            cohens_d_dl_gmm=cohens_d_dl_gmm,
             ml_mean_f1=ml_mean_f1,
             dl_mean_f1=dl_mean_f1,
+            gmm_mean_f1=gmm_mean_f1,
             ml_ci_low=ml_ci_low,
             ml_ci_high=ml_ci_high,
             dl_ci_low=dl_ci_low,
             dl_ci_high=dl_ci_high,
+            gmm_ci_low=gmm_ci_low,
+            gmm_ci_high=gmm_ci_high,
             ml_mean_fatal_recall=ml_mean_fatal_recall,
             dl_mean_fatal_recall=dl_mean_fatal_recall,
+            gmm_mean_fatal_recall=gmm_mean_fatal_recall,
             gates_passed=gates_passed,
         )
 
