@@ -152,8 +152,9 @@ class TestABEvaluatorGates:
         """ABEvaluator.evaluate() returns EvaluationResult (not None, not dict)."""
         ml = _ml_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
         dl = _dl_df([0.46, 0.46, 0.46], [0.60, 0.60, 0.60])
+        gmm = _gmm_df([0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
-        with patch("mlflow.search_runs", _search_runs_dispatch(ml, dl)):
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = evaluator.evaluate()
 
@@ -164,8 +165,9 @@ class TestABEvaluatorGates:
         dl_mean_f1, gates_passed."""
         ml = _ml_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
         dl = _dl_df([0.46, 0.46, 0.46], [0.60, 0.60, 0.60])
+        gmm = _gmm_df([0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
-        with patch("mlflow.search_runs", _search_runs_dispatch(ml, dl)):
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = evaluator.evaluate()
 
@@ -181,8 +183,9 @@ class TestABEvaluatorGates:
         """
         ml = _ml_df([0.40, 0.41, 0.42], [0.45, 0.46, 0.47])  # mean recall ≈ 0.46
         dl = _dl_df([0.37, 0.38, 0.39], [0.55, 0.56, 0.57])
+        gmm = _gmm_df([0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
-        with patch("mlflow.search_runs", _search_runs_dispatch(ml, dl)):
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = evaluator.evaluate()
 
@@ -199,10 +202,11 @@ class TestABEvaluatorGates:
         """
         ml = _ml_df([0.30, 0.31, 0.32], [0.60, 0.61, 0.62])  # mean f1 ≈ 0.31
         dl = _dl_df([0.28, 0.29, 0.30], [0.60, 0.61, 0.62])
+        gmm = _gmm_df([0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
         ev = ABEvaluator(mlflow_cfg, ab_cfg, model_cfg)
 
-        with patch("mlflow.search_runs", _search_runs_dispatch(ml, dl)):
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = ev.evaluate()
 
@@ -218,8 +222,9 @@ class TestABEvaluatorGates:
         """
         ml = _ml_df([0.52, 0.52, 0.52], [0.55, 0.56, 0.57])
         dl = _dl_df([0.46, 0.46, 0.46], [0.60, 0.61, 0.62])
+        gmm = _gmm_df([0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
-        with patch("mlflow.search_runs", _search_runs_dispatch(ml, dl)):
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = evaluator.evaluate()
 
@@ -236,8 +241,9 @@ class TestABEvaluatorGates:
         """
         ml = _ml_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])
         dl = _dl_df([0.52, 0.52, 0.52], [0.55, 0.55, 0.55])  # identical to ML
+        gmm = _gmm_df([0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
-        with patch("mlflow.search_runs", _search_runs_dispatch(ml, dl)):
+        with patch("mlflow.search_runs", _search_runs_dispatch_3way(ml, dl, gmm)):
             with patch("mlflow.get_experiment_by_name", _mock_get_experiment_by_name):
                 result = evaluator.evaluate()
 
@@ -292,6 +298,8 @@ class TestEvaluateRunScript:
                        [0.41, 0.41, 0.41], [0.46, 0.46, 0.46])
         self._log_runs(tracking_uri, "crash-severity-dl",
                        [0.38, 0.38, 0.38], [0.60, 0.60, 0.60])
+        self._log_runs(tracking_uri, "crash-severity-gmm",
+                       [0.20, 0.20, 0.20], [0.30, 0.30, 0.30])  # neutral/weak
 
         params = {
             "features": {

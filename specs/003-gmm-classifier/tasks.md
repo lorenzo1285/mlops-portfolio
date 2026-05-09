@@ -75,8 +75,8 @@
 
 ### Slice B — ABEvaluator 3-way logic
 
-- [ ] T016 [US2] **[TDD-GREEN]** Extend `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py`: query GMM experiment metrics via `_get_metrics(mlflow_config.experiment_name_gmm)`; run three pairwise Welch's t-tests with Bonferroni-corrected alpha (α/3 ≈ 0.017) — ml↔dl, ml↔gmm, dl↔gmm; apply winner selection algorithm: (1) build candidate set = all classifiers that are significantly better than at least one other (p < α/3); (2) if candidates is non-empty, winner = candidate with highest mean F1; (3) if candidates is empty (all pairwise p ≥ α/3), winner = first entry in `ab_test_config.tiebreak` list; check constitutional gates (macro F1 > threshold AND fatal recall > threshold) on winner; return extended `EvaluationResult`. ASCII-only logging.
-- [ ] T017 [US2] Update `src/evaluate/run.py` to pass `config.mlflow.experiment_name_gmm` to `ABEvaluator` constructor and verify `models/best_gmm_model.pkl` exists as an operational precondition before calling `evaluate()`
+- [x] T016 [US2] **[TDD-GREEN]** Extend `ABEvaluator.evaluate()` in `src/evaluate/evaluator.py`: query GMM experiment metrics via `_get_metrics(mlflow_config.experiment_name_gmm)`; run three pairwise Welch's t-tests with Bonferroni-corrected alpha (α/3 ≈ 0.017) — ml↔dl, ml↔gmm, dl↔gmm; apply winner selection algorithm: (1) build candidate set = all classifiers that are significantly better than at least one other (p < α/3); (2) if candidates is non-empty, winner = candidate with highest mean F1; (3) if candidates is empty (all pairwise p ≥ α/3), winner = first entry in `ab_test_config.tiebreak` list; check constitutional gates (macro F1 > threshold AND fatal recall > threshold) on winner; return extended `EvaluationResult`. ASCII-only logging.
+- [x] T017 [US2] Update `src/evaluate/run.py` to pass `config.mlflow.experiment_name_gmm` to `ABEvaluator` constructor and verify `models/best_gmm_model.pkl` exists as an operational precondition before calling `evaluate()`
 
 **Checkpoint**: `uv run dvc repro evaluate` completes after all three training stages; `docs/evaluation_report.json` contains all three classifiers' metrics; `uv run python -m pytest tests/test_evaluator.py -v` is all GREEN.
 
@@ -90,30 +90,26 @@
 
 ### Slice A — CrashSeverityPyfunc extension
 
-- [ ] T018 [US3] **[TDD-RED]** Write failing boundary test for `CrashSeverityPyfunc` with `winner="gmm"` in `tests/test_register.py`: construct pyfunc with `winner="gmm"` metadata, mock context pointing to real `vae_encoder.pth` and `best_gmm_model.pkl`, call `predict()` with real Z rows, assert output shape and all values in `{0,1,2}`. Test MUST fail (gmm branch does not exist yet).
-- [ ] T019 [US3] **[TDD-GREEN]** Extend `CrashSeverityPyfunc.load_context()` in `src/register/registrar.py`: add `elif winner == "gmm"` branch that pickle-loads `context.artifacts["classifier"]` — identical to the `winner == "ml"` branch since `GMMClassifier` exposes `.predict()`. No changes needed to `predict()` since both ml and gmm call `self._classifier.predict(Z)`.
+- [x] T018 [US3] **[TDD-RED]** Write failing boundary test for `CrashSeverityPyfunc` with `winner="gmm"` in `tests/test_register.py`: construct pyfunc with `winner="gmm"` metadata, mock context pointing to real `vae_encoder.pth` and `best_gmm_model.pkl`, call `predict()` with real Z rows, assert output shape and all values in `{0,1,2}`. Test MUST fail (gmm branch does not exist yet).
+- [x] T019 [US3] **[TDD-GREEN]** Extend `CrashSeverityPyfunc.load_context()` in `src/register/registrar.py`: add `elif winner == "gmm"` branch that pickle-loads `context.artifacts["classifier"]` — identical to the `winner == "ml"` branch since `GMMClassifier` exposes `.predict()`. No changes needed to `predict()` since both ml and gmm call `self._classifier.predict(Z)`.
 
 ### Slice B — ModelRegistrar and run.py
 
-- [ ] T020 [US3] Extend `ModelRegistrar.register()` in `src/register/registrar.py`: add `elif winner == "gmm"` branch that resolves `self._mlflow_config.experiment_name_gmm` when looking up the champion run via `mlflow.get_experiment_by_name()`
-- [ ] T021 [US3] Update `src/register/run.py` to detect `winner` from `evaluation_report.json` and pass the correct `classifier_path`: `"ml"` → `models/best_ml_model.pkl`, `"dl"` → `models/mlp_model.pth`, `"gmm"` → `models/best_gmm_model.pkl`
+- [x] T020 [US3] Extend `ModelRegistrar.register()` in `src/register/registrar.py`: add `elif winner == "gmm"` branch that resolves `self._mlflow_config.experiment_name_gmm` when looking up the champion run via `mlflow.get_experiment_by_name()`
+- [x] T021 [US3] Update `src/register/run.py` to detect `winner` from `evaluation_report.json` and pass the correct `classifier_path`: `"ml"` → `models/best_ml_model.pkl`, `"dl"` → `models/mlp_model.pth`, `"gmm"` → `models/best_gmm_model.pkl`
 
 **Checkpoint**: `uv run dvc repro train_ml train_dl train_gmm evaluate register` completes; `models/registry_receipt.json` records correct winner; `uv run python -m pytest tests/test_register.py -v` is all GREEN.
 
 ---
 
-## Phase 6: Tune Stage — Winner Dispatch + fatal_prior_boost HPO
+## ~~Phase 6: Tune Stage — Winner Dispatch + fatal_prior_boost HPO~~ [CANCELLED]
 
-**Goal**: `dvc repro tune` trains the correct classifier per Optuna trial (ml/dl/gmm) and includes `fatal_prior_boost` in the search space when winner=gmm. Fixes the hardcoded recall penalty threshold.
+**Cancelled 2026-05-09** — GMM evaluation on real data shows macro F1 = 0.2639 (gate: > 0.35) with PDO recall = 1%. Root cause: PDO and No Injury overlap heavily in the 8-dim latent space; GMM density fitting cannot separate them. GMM will not win the A/B/C evaluation, so tuning the GMM path has no ROI. The remaining tasks (T017–T021, T026–T027) complete the portfolio story of a 3-way evaluation where a model loses cleanly.
 
-**Independent Test**: Run `dvc repro tune` after a gmm-wins evaluation; Optuna trial MLflow logs contain `fatal_prior_boost` param; fitness is computed from GMM val F1, not XGBoost.
-
-- [ ] T022 Add `fatal_prior_boost_low: float = 1.0` and `fatal_prior_boost_high: float = 5.0` to `OptunaSearchSpace` dataclass in `src/config.py`; add corresponding keys under `tune.optuna.search_space` in `params.yaml`
-- [ ] T023 Extend `OptunaTuner.__init__()` in `src/tune/optuna_tuner.py` to accept `gmm_config: GMMConfig | None`; read `winner` from `docs/evaluation_report.json` (already a stage dep); store as `self._winner`
-- [ ] T024 Extend `OptunaTuner._objective()` in `src/tune/optuna_tuner.py`: branch on `self._winner` and suggest only the relevant imbalance param (`fatal_threshold` for ml, `focal_loss_gamma` for dl, `fatal_prior_boost` for gmm); instantiate and train the corresponding trainer (`MLTrainer`, `DLTrainer`, or `GMMTrainer`) with a single seed; replace hardcoded `0.35` recall penalty threshold with `self._model_config.fatal_recall_threshold`
-- [ ] T025 Update `src/tune/run.py` to load `config.gmm` and pass it to `OptunaTuner`
-
-**Checkpoint**: Optuna trial logs show `fatal_prior_boost` when winner=gmm, `fatal_threshold` when winner=ml, `focal_loss_gamma` when winner=dl.
+- [~] T022 ~~Add `fatal_prior_boost_low/high` to `OptunaSearchSpace`~~ — not needed; GMM cannot win
+- [~] T023 ~~Extend `OptunaTuner.__init__()` to accept `gmm_config`~~ — not needed
+- [~] T024 ~~Branch `OptunaTuner._objective()` on winner for GMM path~~ — not needed
+- [~] T025 ~~Update `src/tune/run.py` to pass `config.gmm`~~ — not needed
 
 ---
 
@@ -133,8 +129,8 @@
 - **Phase 3 (US1)**: Depends on Phase 2
 - **Phase 4 (US2)**: Depends on Phase 2 + Phase 3 (evaluate queries GMM MLflow experiment)
 - **Phase 5 (US3)**: Depends on Phase 2 + Phase 4 (register reads evaluation_report winner)
-- **Phase 6 (Tune)**: Depends on Phase 3 (needs GMMTrainer to dispatch to)
-- **Phase 7 (Polish)**: Depends on all prior phases complete
+- **Phase 6 (Tune)**: CANCELLED — GMM cannot win A/B/C evaluation (macro F1 0.26, PDO recall 1%)
+- **Phase 7 (Polish)**: Depends on Phases 1–5 complete
 
 ### User Story Dependencies
 

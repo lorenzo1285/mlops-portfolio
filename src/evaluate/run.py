@@ -10,7 +10,7 @@ from src.evaluate.evaluator import ABEvaluator
 
 
 def main() -> None:
-    """Run A/B test on ML vs DL; write reports; exit 1 if gates fail."""
+    """Run 3-way A/B/C test on ML vs DL vs GMM; write reports; exit 1 if gates fail."""
     try:
         # Load config
         config = load_config()
@@ -19,9 +19,18 @@ def main() -> None:
         report_path = os.getenv("REPORT_PATH", "docs/evaluation_report.json")
         ab_report_path = os.getenv("AB_REPORT_PATH", "docs/ab_test_comparison.json")
         
-        print("Evaluate: A/B test ML vs DL experiments")
+        # Verify operational preconditions
+        gmm_model_path = Path("models/best_gmm_model.pkl")
+        if not gmm_model_path.exists():
+            raise FileNotFoundError(
+                f"GMM model not found: {gmm_model_path}. "
+                "Run train_gmm stage before evaluate."
+            )
+        
+        print("Evaluate: 3-way A/B/C test on ML vs DL vs GMM experiments")
         print(f"  ML experiment: {config.mlflow.experiment_name_ml}")
         print(f"  DL experiment: {config.mlflow.experiment_name_dl}")
+        print(f"  GMM experiment: {config.mlflow.experiment_name_gmm}")
         print(f"  Seeds: {config.ab_test.seeds}")
         print(f"  Alpha: {config.ab_test.alpha}")
         print(f"  Tiebreak: {config.ab_test.tiebreak}")
@@ -44,11 +53,16 @@ def main() -> None:
             json.dump(asdict(result), f, indent=2)
         
         # Write ab_test_comparison.json (statistical details)
+        alpha_bonf = config.ab_test.alpha / 3.0
         ab_comparison = {
             "winner": result.winner,
+            "alpha_bonferroni": alpha_bonf,
             "p_value_ml_dl": result.p_value_ml_dl,
             "p_value_ml_gmm": result.p_value_ml_gmm,
             "p_value_dl_gmm": result.p_value_dl_gmm,
+            "significant_ml_dl": result.p_value_ml_dl < alpha_bonf,
+            "significant_ml_gmm": result.p_value_ml_gmm < alpha_bonf,
+            "significant_dl_gmm": result.p_value_dl_gmm < alpha_bonf,
             "cohens_d_ml_dl": result.cohens_d_ml_dl,
             "cohens_d_ml_gmm": result.cohens_d_ml_gmm,
             "cohens_d_dl_gmm": result.cohens_d_dl_gmm,
@@ -61,16 +75,19 @@ def main() -> None:
             "dl_ci_high": result.dl_ci_high,
             "gmm_ci_low": result.gmm_ci_low,
             "gmm_ci_high": result.gmm_ci_high,
-            "significant_ml_dl": result.p_value_ml_dl < config.ab_test.alpha,
         }
         with open(ab_report_path, "w") as f:
             json.dump(ab_comparison, f, indent=2)
         
         # Report results
-        print(f"\nA/B Test Results:")
+        print(f"\n3-Way A/B/C Test Results (Bonferroni-corrected alpha = {config.ab_test.alpha / 3.0:.4f}):")
         print(f"  Winner: {result.winner.upper()}")
-        print(f"  p-value (ml vs dl): {result.p_value_ml_dl:.4f} ({'significant' if result.p_value_ml_dl < config.ab_test.alpha else 'not significant'})")
+        print(f"  p-value (ml vs dl): {result.p_value_ml_dl:.4f}")
+        print(f"  p-value (ml vs gmm): {result.p_value_ml_gmm:.4f}")
+        print(f"  p-value (dl vs gmm): {result.p_value_dl_gmm:.4f}")
         print(f"  Cohen's d (ml vs dl): {result.cohens_d_ml_dl:.4f}")
+        print(f"  Cohen's d (ml vs gmm): {result.cohens_d_ml_gmm:.4f}")
+        print(f"  Cohen's d (dl vs gmm): {result.cohens_d_dl_gmm:.4f}")
         print(f"\n  ML:  macro F1 = {result.ml_mean_f1:.4f} (95% CI: [{result.ml_ci_low:.4f}, {result.ml_ci_high:.4f}])")
         print(f"       fatal recall = {result.ml_mean_fatal_recall:.4f}")
         print(f"  DL:  macro F1 = {result.dl_mean_f1:.4f} (95% CI: [{result.dl_ci_low:.4f}, {result.dl_ci_high:.4f}])")

@@ -49,6 +49,9 @@ class CrashSeverityPyfunc(mlflow.pyfunc.PythonModel):
         if winner == "ml":
             with open(clf_path, "rb") as f:
                 self._classifier = pickle.load(f)
+        elif winner == "gmm":
+            with open(clf_path, "rb") as f:
+                self._classifier = pickle.load(f)
         else:
             from src.train_dl.trainer import ShallowMLP
 
@@ -70,8 +73,9 @@ class CrashSeverityPyfunc(mlflow.pyfunc.PythonModel):
             Z = mu.numpy()
 
         winner = self._meta.get("winner", "ml")
-        if winner == "ml":
+        if winner in ("ml", "gmm"):
             return self._classifier.predict(Z)
+        # winner == "dl" (PyTorch MLP)
         with torch.no_grad():
             return self._classifier(torch.tensor(Z)).argmax(dim=1).numpy()
 
@@ -117,11 +121,16 @@ class ModelRegistrar:
 
         mlflow.set_tracking_uri(self._mlflow_config.tracking_uri)
 
-        exp = mlflow.get_experiment_by_name(
-            self._mlflow_config.experiment_name_ml
-            if winner == "ml"
-            else self._mlflow_config.experiment_name_dl
-        )
+        if winner == "ml":
+            experiment_name = self._mlflow_config.experiment_name_ml
+        elif winner == "dl":
+            experiment_name = self._mlflow_config.experiment_name_dl
+        elif winner == "gmm":
+            experiment_name = self._mlflow_config.experiment_name_gmm
+        else:
+            raise ValueError(f"Unknown winner: {winner}")
+
+        exp = mlflow.get_experiment_by_name(experiment_name)
         experiment_id = exp.experiment_id if exp is not None else None
 
         code_paths = ["src/"] if Path("src/").exists() else None

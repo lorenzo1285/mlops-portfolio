@@ -20,7 +20,7 @@ import torch
 import yaml
 
 from src.config import MLflowConfig
-from src.register.registrar import ModelRegistrar, RegistryReceipt
+from src.register.registrar import CrashSeverityPyfunc, ModelRegistrar, RegistryReceipt
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -34,6 +34,7 @@ def mlflow_cfg():
         experiment_name_dl="crash-severity-dl",
         experiment_name_vae="crash-severity-vae",
         experiment_name_tune="crash-severity-tune",
+        experiment_name_gmm="crash-severity-gmm",
         model_name="crash-severity",
     )
 
@@ -114,6 +115,8 @@ def base_params() -> dict:
             "patience": 10,
             "batch_size": 256,
             "lr": 0.001,
+            "focal_loss_enabled": False,
+            "focal_loss_gamma": 2.0,
             "experiment_name": "crash-severity-dl",
         },
         "vae": {
@@ -134,13 +137,51 @@ def base_params() -> dict:
             "target_fatal_ratio": 0.05,
             "random_state": 42,
         },
-        "ab_test": {"seeds": [0, 1, 2], "alpha": 0.05, "tiebreak": "ml"},
+        "ab_test": {"seeds": [0, 1, 2], "alpha": 0.05, "tiebreak": ["ml", "dl", "gmm"]},
+        "gmm": {
+            "n_components": {0: 1, 1: 1, 2: 2},
+            "covariance_type": "full",
+            "reg_covar": 1.0e-6,
+            "max_iter": 100,
+            "n_init": 5,
+            "fatal_prior_boost": 1.0,
+            "experiment_name": "crash-severity-gmm",
+        },
+        "tune": {
+            "experiment_name": "vae-hyperparameter-tuning",
+            "max_trials": 15,
+            "namespace": "default",
+            "max_dl_trial_epochs": 50,
+            "optuna": {
+                "n_trials": 30,
+                "study_name": "vae-optuna-hpo",
+                "direction": "maximize",
+                "pruner": {"n_startup_trials": 5, "n_warmup_steps": 15},
+                "search_space": {
+                    "beta_max_low": 0.01,
+                    "beta_max_high": 1.0,
+                    "latent_dim_choices": [8, 16, 32, 64],
+                    "warmup_epochs_low": 5,
+                    "warmup_epochs_high": 30,
+                    "lr_low": 0.0001,
+                    "lr_high": 0.001,
+                    "dropout_p_low": 0.05,
+                    "dropout_p_high": 0.3,
+                    "target_fatal_ratio_choices": [0.05, 0.1, 0.15, 0.2],
+                    "fatal_threshold_low": 0.02,
+                    "fatal_threshold_high": 0.2,
+                    "focal_loss_gamma_low": 0.5,
+                    "focal_loss_gamma_high": 3.0,
+                },
+            },
+        },
         "mlflow": {
             "tracking_uri": "mlruns/",
             "experiment_name_ml": "crash-severity-ml",
             "experiment_name_dl": "crash-severity-dl",
             "experiment_name_vae": "crash-severity-vae",
             "experiment_name_tune": "crash-severity-tune",
+            "experiment_name_gmm": "crash-severity-gmm",
             "model_name": "crash-severity",
         },
         "great_expectations": {
@@ -272,6 +313,102 @@ class TestModelRegistrar:
         assert isinstance(result, RegistryReceipt)
         assert result.run_id == champion_run_id
 
+    @patch("mlflow.MlflowClient")
+    @patch("mlflow.register_model")
+    @patch("mlflow.pyfunc.log_model")
+    @patch("mlflow.log_params")
+    @patch("mlflow.start_run")
+    @patch("mlflow.get_experiment_by_name")
+    def test_register_gmm_winner_looks_up_correct_experiment(
+        self,
+        mock_get_exp,
+        mock_start_run,
+        mock_log_params,
+        mock_log_model,
+        mock_register_model,
+        mock_client_cls,
+        mlflow_cfg,
+        evaluation_report_pass,
+        tmp_path,
+        model_metadata,
+    ):
+        """T020: When winner='gmm', register() queries crash-severity-gmm experiment."""
+        # Arrange: evaluation report with winner='gmm'
+        gmm_report_path = tmp_path / "evaluation_report_gmm.json"
+        gmm_report_data = {
+            "winner": "gmm",
+            "p_value_ml_dl": 0.05,
+            "p_value_ml_gmm": 0.001,
+            "p_value_dl_gmm": 0.002,
+            "cohens_d_ml_dl": 0.3,
+            "cohens_d_ml_gmm": 0.8,
+            "cohens_d_dl_gmm": 0.6,
+            "ml_mean_f1": 0.45,
+            "dl_mean_f1": 0.43,
+            "gmm_mean_f1": 0.50,
+            "ml_ci_low": 0.43,
+            "ml_ci_high": 0.47,
+            "dl_ci_low": 0.41,
+            "dl_ci_high": 0.45,
+            "gmm_ci_low": 0.48,
+            "gmm_ci_high": 0.52,
+            "ml_mean_fatal_recall": 0.55,
+            "dl_mean_fatal_recall": 0.53,
+            "gmm_mean_fatal_recall": 0.60,
+            "gates_passed": True,
+        }
+        with open(gmm_report_path, "w") as f:
+            json.dump(gmm_report_data, f, indent=2)
+
+        mock_get_exp.return_value = MagicMock(experiment_id="gmm_exp_id")
+
+        pyfunc_run = MagicMock()
+        pyfunc_run.info.run_id = "pyfunc_gmm_run_123"
+        mock_start_run.return_value.__enter__.return_value = pyfunc_run
+
+        mock_model_version = MagicMock()
+        mock_model_version.version = "2"
+        mock_register_model.return_value = mock_model_version
+
+        mock_client = MagicMock()
+        mock_client_cls.return_value = mock_client
+
+        registrar = ModelRegistrar(mlflow_cfg)
+        receipt_path = tmp_path / "registry_receipt_gmm.json"
+        champion_run_id = "gmm_champion_run_456"
+
+        gmm_metadata = {**model_metadata, "winner": "gmm"}
+
+        # Act
+        result = registrar.register(
+            winner="gmm",
+            run_id=champion_run_id,
+            report_path=str(gmm_report_path),
+            receipt_path=str(receipt_path),
+            encoder_path="models/vae_encoder.pth",
+            classifier_path="models/best_gmm_model.pkl",
+            model_metadata=gmm_metadata,
+        )
+
+        # Assert: get_experiment_by_name called with crash-severity-gmm
+        mock_get_exp.assert_called_once_with("crash-severity-gmm")
+
+        # Assert: pyfunc bundle logged with GMM classifier
+        mock_log_model.assert_called_once()
+        log_model_kwargs = mock_log_model.call_args.kwargs
+        assert log_model_kwargs["artifacts"]["classifier"] == "models/best_gmm_model.pkl"
+
+        # Assert: receipt written with winner='gmm'
+        assert receipt_path.exists()
+        with open(receipt_path) as f:
+            receipt_data = json.load(f)
+        assert receipt_data["run_id"] == champion_run_id
+        assert receipt_data["winner"] == "gmm"
+
+        # Assert: RegistryReceipt returned
+        assert isinstance(result, RegistryReceipt)
+        assert result.winner == "gmm"
+
 
 # ── Integration tests (run.py entry point) ───────────────────────────────────
 
@@ -380,3 +517,51 @@ class TestRegisterStage:
         client = mlflow.MlflowClient(tracking_uri=mlflow_uri)
         model_version = client.get_model_version_by_alias("crash-severity", "champion")
         assert model_version is not None
+
+
+# ── T018: CrashSeverityPyfunc with GMM winner ────────────────────────────────
+
+
+class TestCrashSeverityPyfuncGMM:
+    """Boundary tests for CrashSeverityPyfunc with winner='gmm' — T018."""
+
+    def test_pyfunc_gmm_predict_returns_valid_classes(self):
+        """T018: Given winner='gmm', pyfunc loads GMM classifier and predicts class labels."""
+        # Load real encoder checkpoint
+        encoder_path = Path("models/vae_encoder.pth")
+        assert encoder_path.exists(), "models/vae_encoder.pth not found"
+        
+        # Load real GMM model
+        gmm_path = Path("models/best_gmm_model.pkl")
+        assert gmm_path.exists(), "models/best_gmm_model.pkl not found"
+        
+        # Load real X data (featurized, not latent) — small subset for speed
+        X_val = np.load("data/processed/X_val.npy")[:10]  # first 10 rows
+        
+        # Construct pyfunc with GMM metadata
+        model_metadata = {
+            "winner": "gmm",
+            "latent_dim": 8,
+            "input_dim": 8,  # not used for GMM, but required for consistency
+            "hidden_dim": 64,  # not used for GMM
+            "n_classes": 3,
+            "dropout_p": 0.1,  # not used for GMM
+        }
+        pyfunc = CrashSeverityPyfunc(model_metadata=model_metadata)
+        
+        # Mock context with real artifact paths
+        mock_context = MagicMock(spec=mlflow.pyfunc.PythonModelContext)
+        mock_context.artifacts = {
+            "encoder": str(encoder_path),
+            "classifier": str(gmm_path),
+        }
+        
+        # Load context and predict
+        pyfunc.load_context(mock_context)
+        predictions = pyfunc.predict(mock_context, X_val)
+        
+        # Assert valid output
+        assert predictions.shape == (len(X_val),), \
+            f"Expected shape ({len(X_val)},), got {predictions.shape}"
+        assert all(p in {0, 1, 2} for p in predictions), \
+            f"Predictions must be in {{0,1,2}}, got {set(predictions)}"

@@ -30,20 +30,24 @@ def main() -> None:
             )
         winner = report_data["winner"]
 
-        default_classifier = (
-            "models/best_ml_model.pkl" if winner == "ml" else "models/mlp_model.pth"
-        )
+        if winner == "ml":
+            default_classifier = "models/best_ml_model.pkl"
+        elif winner == "gmm":
+            default_classifier = "models/best_gmm_model.pkl"
+        else:
+            default_classifier = "models/mlp_model.pth"
         classifier_path = os.getenv("CLASSIFIER_PATH", default_classifier)
 
         # Propagate env-var tracking URI into config so ModelRegistrar uses it
         mlflow_config = dataclasses.replace(config.mlflow, tracking_uri=tracking_uri)
         mlflow.set_tracking_uri(tracking_uri)
 
-        exp_name = (
-            mlflow_config.experiment_name_ml
-            if winner == "ml"
-            else mlflow_config.experiment_name_dl
-        )
+        if winner == "ml":
+            exp_name = mlflow_config.experiment_name_ml
+        elif winner == "gmm":
+            exp_name = mlflow_config.experiment_name_gmm
+        else:
+            exp_name = mlflow_config.experiment_name_dl
         exp = mlflow.get_experiment_by_name(exp_name)
         if exp is None:
             raise ValueError(f"Experiment '{exp_name}' not found")

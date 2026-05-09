@@ -32,16 +32,17 @@ class EvaluationResult:
 
 
 class ABEvaluator:
-    """Welch's t-test comparing macro F1 distributions of ML vs DL seeds.
+    """3-way A/B/C comparison of ML vs DL vs GMM using Welch's t-tests with Bonferroni correction.
 
-    Queries per-seed eout_macro_f1 and eout_fatal_recall from MLflow, runs
-    Welch's t-test, and returns a structured result. Falls back to the
-    tiebreak rule (default: ml) when p >= alpha. Asserts constitutional
-    gates: macro_f1 > threshold AND fatal_recall > threshold.
+    Queries per-seed eout_macro_f1 and eout_fatal_recall from all three MLflow experiments,
+    runs three pairwise Welch's t-tests with Bonferroni-corrected alpha (alpha/3), and selects
+    winner based on: (1) candidate set of classifiers significantly better than at least one
+    other, (2) highest mean F1 among candidates, or (3) tiebreak rule if no significant
+    differences. Asserts constitutional gates: macro_f1 > threshold AND fatal_recall > threshold.
 
     Public interface
     ----------------
-    evaluate() → EvaluationResult
+    evaluate() -> EvaluationResult
     """
 
     def __init__(self, mlflow_config, ab_test_config, model_config) -> None:
@@ -50,46 +51,79 @@ class ABEvaluator:
         self._model_config = model_config
 
     def evaluate(self) -> EvaluationResult:
-        """Run A/B test on ML vs DL experiments; check constitutional gates."""
+        """Run 3-way A/B/C test on ML vs DL vs GMM experiments; check constitutional gates."""
         mlflow.set_tracking_uri(self._mlflow_config.tracking_uri)
         
-        # Query MLflow for per-seed metrics
+        # Query MLflow for per-seed metrics (all three experiments)
         ml_f1, ml_recall = self._get_metrics(self._mlflow_config.experiment_name_ml)
         dl_f1, dl_recall = self._get_metrics(self._mlflow_config.experiment_name_dl)
+        gmm_f1, gmm_recall = self._get_metrics(self._mlflow_config.experiment_name_gmm)
         
-        # Welch's t-test on F1 distributions
-        t_stat, p_value = stats.ttest_ind(ml_f1, dl_f1, equal_var=False)
+        # Three pairwise Welch's t-tests with Bonferroni correction
+        alpha_bonf = self._ab_test_config.alpha / 3.0  # alpha/3 for 3 pairwise comparisons
         
-        # Determine winner
-        if p_value < self._ab_test_config.alpha:
-            # Statistically significant difference
-            winner = "ml" if np.mean(ml_f1) > np.mean(dl_f1) else "dl"
-        else:
-            # Not significant → apply tiebreak (use first in priority list)
-            winner = self._ab_test_config.tiebreak[0]
+        _, p_value_ml_dl = stats.ttest_ind(ml_f1, dl_f1, equal_var=False)
+        _, p_value_ml_gmm = stats.ttest_ind(ml_f1, gmm_f1, equal_var=False)
+        _, p_value_dl_gmm = stats.ttest_ind(dl_f1, gmm_f1, equal_var=False)
         
-        # Compute Cohen's d
+        # Handle NaN p-values (occurs when distributions are identical/zero variance)
+        # NaN means no meaningful difference -> treat as p=1.0 (not significant)
+        p_value_ml_dl = 1.0 if np.isnan(p_value_ml_dl) else float(p_value_ml_dl)
+        p_value_ml_gmm = 1.0 if np.isnan(p_value_ml_gmm) else float(p_value_ml_gmm)
+        p_value_dl_gmm = 1.0 if np.isnan(p_value_dl_gmm) else float(p_value_dl_gmm)
+        
+        # Compute Cohen's d for all pairs
         cohens_d_ml_dl = self._cohens_d(ml_f1, dl_f1)
+        cohens_d_ml_gmm = self._cohens_d(ml_f1, gmm_f1)
+        cohens_d_dl_gmm = self._cohens_d(dl_f1, gmm_f1)
         
         # Compute 95% CIs
         ml_ci_low, ml_ci_high = self._confidence_interval(ml_f1)
         dl_ci_low, dl_ci_high = self._confidence_interval(dl_f1)
+        gmm_ci_low, gmm_ci_high = self._confidence_interval(gmm_f1)
         
         # Mean metrics
         ml_mean_f1 = float(np.mean(ml_f1))
         dl_mean_f1 = float(np.mean(dl_f1))
+        gmm_mean_f1 = float(np.mean(gmm_f1))
         ml_mean_fatal_recall = float(np.mean(ml_recall))
         dl_mean_fatal_recall = float(np.mean(dl_recall))
+        gmm_mean_fatal_recall = float(np.mean(gmm_recall))
         
-        # Placeholder GMM values (actual 3-way logic in T016)
-        gmm_mean_f1 = 0.0
-        gmm_ci_low = 0.0
-        gmm_ci_high = 0.0
-        gmm_mean_fatal_recall = 0.0
-        p_value_ml_gmm = 1.0
-        p_value_dl_gmm = 1.0
-        cohens_d_ml_gmm = 0.0
-        cohens_d_dl_gmm = 0.0
+        # Winner selection algorithm (3-way with Bonferroni correction)
+        # Step 1: Build candidate set = classifiers significantly better than at least one other
+        candidates = set()
+        
+        # ML is a candidate if it beats DL or GMM significantly
+        if p_value_ml_dl < alpha_bonf and ml_mean_f1 > dl_mean_f1:
+            candidates.add("ml")
+        if p_value_ml_gmm < alpha_bonf and ml_mean_f1 > gmm_mean_f1:
+            candidates.add("ml")
+        
+        # DL is a candidate if it beats ML or GMM significantly
+        if p_value_ml_dl < alpha_bonf and dl_mean_f1 > ml_mean_f1:
+            candidates.add("dl")
+        if p_value_dl_gmm < alpha_bonf and dl_mean_f1 > gmm_mean_f1:
+            candidates.add("dl")
+        
+        # GMM is a candidate if it beats ML or DL significantly
+        if p_value_ml_gmm < alpha_bonf and gmm_mean_f1 > ml_mean_f1:
+            candidates.add("gmm")
+        if p_value_dl_gmm < alpha_bonf and gmm_mean_f1 > dl_mean_f1:
+            candidates.add("gmm")
+        
+        # Step 2: Select winner
+        if candidates:
+            # At least one classifier is significantly better -> pick highest mean F1 among candidates
+            candidate_f1s = {
+                "ml": ml_mean_f1 if "ml" in candidates else -np.inf,
+                "dl": dl_mean_f1 if "dl" in candidates else -np.inf,
+                "gmm": gmm_mean_f1 if "gmm" in candidates else -np.inf,
+            }
+            winner = max(candidate_f1s, key=candidate_f1s.get)
+        else:
+            # No significant differences -> apply tiebreak (first in priority list)
+            winner = self._ab_test_config.tiebreak[0]
         
         # Check constitutional gates on winner
         if winner == "ml":
@@ -109,7 +143,7 @@ class ABEvaluator:
         
         return EvaluationResult(
             winner=winner,
-            p_value_ml_dl=float(p_value),
+            p_value_ml_dl=p_value_ml_dl,
             p_value_ml_gmm=p_value_ml_gmm,
             p_value_dl_gmm=p_value_dl_gmm,
             cohens_d_ml_dl=cohens_d_ml_dl,
