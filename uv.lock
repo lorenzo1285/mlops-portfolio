@@ -2970,6 +2970,19 @@ wheels = [
 ]
 
 [[package]]
+name = "kfp-kubernetes"
+version = "2.16.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "kfp" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fe/bf/ec1d0b97220b779fe373a2e52b217e70ac391cbcdbe184d5d4a128aecb3d/kfp_kubernetes-2.16.1.tar.gz", hash = "sha256:31267b58d04ad97165fb640ab8fe99c2ac58b9f46077a046bd34d281e9491d54", size = 19754, upload-time = "2026-05-05T13:48:28.948Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/38/be/f6022a3c453318b867d2ba9ec9d07f52ecb01ff0bfccd3567b2d3280d0d7/kfp_kubernetes-2.16.1-py3-none-any.whl", hash = "sha256:d6bb854d93a6bc6893f70e9e4f4978d6133760ae62d8626be8a4360993cc9375", size = 27306, upload-time = "2026-05-05T13:48:27.326Z" },
+]
+
+[[package]]
 name = "kfp-pipeline-spec"
 version = "2.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3539,6 +3552,7 @@ dependencies = [
     { name = "joblib" },
     { name = "jupyter" },
     { name = "kfp" },
+    { name = "kfp-kubernetes" },
     { name = "kubernetes" },
     { name = "lime" },
     { name = "matplotlib" },
@@ -3574,6 +3588,7 @@ requires-dist = [
     { name = "joblib" },
     { name = "jupyter" },
     { name = "kfp", specifier = ">=2.0" },
+    { name = "kfp-kubernetes", specifier = ">=2.16.1" },
     { name = "kubernetes", specifier = ">=28.0" },
     { name = "lime", specifier = ">=0.2.0.1" },
     { name = "matplotlib" },

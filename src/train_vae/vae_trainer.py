@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -259,6 +260,8 @@ class DVAETrainer:
         # Start MLflow run (nested if called from Optuna)
         active_run = mlflow.active_run()
         with mlflow.start_run(run_name=self._run_name, nested=active_run is not None) as run:
+            if os.getenv("KFP_POD_NAME"):
+                mlflow.set_tag("orchestrator", "kubeflow")
             # Log parameters
             mlflow.log_params({
                 "encoder_dims": str(self._vae_config.encoder_dims),

@@ -196,10 +196,14 @@ class OptunaTuner:
                     y_test=self._y_test,
                 )
 
-                val_fitness = 0.6 * ml_result.eval_macro_f1 + 0.4 * ml_result.eval_fatal_recall
+                recall_floor = self._tune_config.optuna.pruner.recall_floor
+                recall_penalty_scale = self._tune_config.optuna.pruner.recall_penalty_scale
+                penalty = max(0.0, recall_floor - ml_result.eval_fatal_recall) ** 2 * recall_penalty_scale
+                val_fitness = 0.5 * ml_result.eval_macro_f1 + 0.5 * ml_result.eval_fatal_recall - penalty
 
                 # Log fitness
                 mlflow.log_metric("val_fitness", val_fitness)
+                mlflow.log_metric("recall_penalty", penalty)
                 mlflow.log_metric("val_macro_f1", ml_result.eval_macro_f1)
                 mlflow.log_metric("val_fatal_recall", ml_result.eval_fatal_recall)
                 mlflow.log_metric("test_macro_f1", ml_result.eout_macro_f1)

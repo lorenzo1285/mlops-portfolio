@@ -6,10 +6,11 @@ project root at /app. All components use the same base image.
 Usage:
     python pipelines/kubeflow/pipeline.py   # compiles pipeline.yaml
 """
+import yaml
 from kfp import compiler, dsl
 from kfp import kubernetes
 
-BASE_IMAGE = "mlops-portfolio:latest"
+BASE_IMAGE = "mlops-portfolio:local"
 PVC_NAME = "mlops-portfolio-pvc"
 MOUNT_PATH = "/app"
 
@@ -39,13 +40,15 @@ def featurize_op() -> None:
 @dsl.component(base_image=BASE_IMAGE)
 def augment_op() -> None:
     import subprocess
-    subprocess.run(["dvc", "repro", "augment"], check=True, cwd="/app")
+    # Run module directly to avoid DVC rwlock contention with concurrent pods
+    subprocess.run(["python", "-m", "src.augment.run"], check=True, cwd="/app")
 
 
 @dsl.component(base_image=BASE_IMAGE)
 def train_vae_op() -> None:
     import subprocess
-    subprocess.run(["dvc", "repro", "train_vae"], check=True, cwd="/app")
+    # Run module directly to avoid DVC rwlock contention with concurrent pods
+    subprocess.run(["python", "-m", "src.train_vae.run"], check=True, cwd="/app")
 
 
 @dsl.component(base_image=BASE_IMAGE)
@@ -57,19 +60,22 @@ def encode_op() -> None:
 @dsl.component(base_image=BASE_IMAGE)
 def train_ml_op() -> None:
     import subprocess
-    subprocess.run(["dvc", "repro", "train_ml"], check=True, cwd="/app")
+    # Run module directly to avoid DVC rwlock contention with concurrent pods
+    subprocess.run(["python", "-m", "src.train_ml.run"], check=True, cwd="/app")
 
 
 @dsl.component(base_image=BASE_IMAGE)
 def train_dl_op() -> None:
     import subprocess
-    subprocess.run(["dvc", "repro", "train_dl"], check=True, cwd="/app")
+    # Run module directly to avoid DVC rwlock contention with concurrent pods
+    subprocess.run(["python", "-m", "src.train_dl.run"], check=True, cwd="/app")
 
 
 @dsl.component(base_image=BASE_IMAGE)
 def train_gmm_op() -> None:
     import subprocess
-    subprocess.run(["dvc", "repro", "train_gmm"], check=True, cwd="/app")
+    # Run module directly to avoid DVC rwlock contention with concurrent pods
+    subprocess.run(["python", "-m", "src.train_gmm.run"], check=True, cwd="/app")
 
 
 @dsl.component(base_image=BASE_IMAGE)
@@ -130,6 +136,47 @@ def pipeline() -> None:
     register.after(tune)
 
 
+def _patch_pipeline_yaml(path: str) -> None:
+    """Strip pvcNameParameter from the compiled KFP-Kubernetes extension YAML.
+
+    kfp-kubernetes >= 2.x generates a pvcNameParameter wrapper that the
+    KFP 2.2.0 cluster driver does not recognise.  This function rewrites the
+    kubernetes platform section to the KFP 2.2.0 wire format:
+      pvcNameParameter field removed
+      constant field kept as-is (known to KFP 2.2.0 driver)
+    """
+    with open(path, encoding="utf-8") as f:
+        raw = f.read()
+
+    # pipeline.yaml has two YAML documents separated by "---"
+    parts = raw.split("---\n", 1)
+    if len(parts) != 2:
+        return  # no kubernetes extension section; nothing to patch
+
+    main_part, k8s_part = parts
+    k8s_doc = yaml.safe_load(k8s_part)
+
+    executors = (
+        k8s_doc
+        .get("platforms", {})
+        .get("kubernetes", {})
+        .get("deploymentSpec", {})
+        .get("executors", {})
+    )
+    for executor_spec in executors.values():
+        for mount in executor_spec.get("pvcMount", []):
+            # The KFP 2.2.0 cluster driver understands 'constant' (oneof
+            # pvc_reference field 2 in the proto) but NOT 'pvcNameParameter'
+            # (added in kfp-kubernetes >= 2.x). Just remove the unknown field.
+            mount.pop("pvcNameParameter", None)
+
+    patched = yaml.dump(k8s_doc, default_flow_style=False, allow_unicode=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(main_part + "---\n" + patched)
+
+
 if __name__ == "__main__":
-    compiler.Compiler().compile(pipeline, "pipelines/kubeflow/pipeline.yaml")
-    print("Compiled: pipelines/kubeflow/pipeline.yaml")
+    out = "pipelines/kubeflow/pipeline.yaml"
+    compiler.Compiler().compile(pipeline, out)
+    _patch_pipeline_yaml(out)
+    print(f"Compiled (KFP 2.2.0-patched): {out}")

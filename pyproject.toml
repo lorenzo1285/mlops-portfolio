@@ -31,6 +31,7 @@ dependencies = [
     "shap>=0.45.1",
     "lime>=0.2.0.1",
     "optuna>=4.8.0",
+    "kfp-kubernetes>=2.16.1",
 ]
 
 [dependency-groups]

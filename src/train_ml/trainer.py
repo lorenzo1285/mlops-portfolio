@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pickle
 
 import cloudpickle
@@ -141,11 +142,14 @@ class MLTrainer:
         active_run = mlflow.active_run()
         with mlflow.start_run(run_name=f"xgb_seed_{seed}", nested=active_run is not None) as run:
             # Tag the run
-            mlflow.set_tags({
+            tags = {
                 "seed": str(seed),
                 "model_type": "xgboost",
                 "loss_type": "focal" if self._model_config.focal_loss_enabled else "ce",
-            })
+            }
+            if os.getenv("KFP_POD_NAME"):
+                tags["orchestrator"] = "kubeflow"
+            mlflow.set_tags(tags)
 
             # Log parameters
             log_params = {

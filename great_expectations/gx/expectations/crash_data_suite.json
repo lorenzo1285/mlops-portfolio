@@ -1,7 +1,7 @@
 {
   "expectations": [
     {
-      "id": "3cb413d4-ca7f-4307-85e9-eef743f7ed4d",
+      "id": "546986c1-d373-42f3-9dd4-72e3d36caf3f",
       "kwargs": {
         "column": "HOUR",
         "mostly": 0.996
@@ -13,14 +13,17 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "517efc3b-6337-413e-a4ac-1bfa4cb57450",
+      "id": "3ded5265-c9d9-4346-90fa-2a91e7865c2d",
       "kwargs": {
         "column": "HOUR",
         "condition_parser": "pandas",
         "max_value": 23.0,
         "min_value": 0.0,
         "mostly": 0.996,
-        "row_condition": "HOUR != 99"
+        "row_condition": {
+          "pass_through_filter": "HOUR != 99",
+          "type": "pass_through"
+        }
       },
       "meta": {
         "rule": "HOUR_range"
@@ -29,7 +32,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "f5e90cbc-6d5a-4e65-8543-7b03a6be7d19",
+      "id": "de73cfa0-05f6-4b37-82d8-ecd8f79a81e7",
       "kwargs": {
         "column": "DAYOFWEEK"
       },
@@ -40,7 +43,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "ba82ff4f-4e20-4611-a640-8af909cd33c6",
+      "id": "ebb56272-50a2-478b-9049-c0e526f62586",
       "kwargs": {
         "column": "DAYOFWEEK",
         "value_set": [
@@ -60,7 +63,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "44730616-48b0-462e-b9c7-293a960d795e",
+      "id": "48dddb0e-d689-428c-95ca-d90e61b670b8",
       "kwargs": {
         "column": "MONTH"
       },
@@ -71,7 +74,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "ef54a040-4efd-4ba8-8a92-02a58c9c1020",
+      "id": "0a485341-6f0e-4921-9e5c-26450722aae8",
       "kwargs": {
         "column": "MONTH",
         "value_set": [
@@ -96,7 +99,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "58bd7da5-a310-4c64-96c8-43d770db19a7",
+      "id": "a736ed5d-a82f-4aab-bd05-9f1634ce1ef8",
       "kwargs": {
         "column": "YEAR"
       },
@@ -107,7 +110,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "74a670f7-0480-40e5-b536-f12c4a452117",
+      "id": "58814fac-d70e-4d1f-902d-7abe5879e54b",
       "kwargs": {
         "column": "YEAR",
         "max_value": 2017.0,
@@ -120,7 +123,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "0410c466-459f-442b-bb08-97d064028209",
+      "id": "63e4bde9-8f77-4d62-994a-9f1fcaad58c4",
       "kwargs": {
         "column": "WEATHER"
       },
@@ -131,7 +134,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "025468f0-1742-407c-b104-f25efa2eedcf",
+      "id": "aee4cf73-b9c5-4189-9862-1712d3b97e46",
       "kwargs": {
         "column": "WEATHER",
         "value_set": [
@@ -155,7 +158,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "01fa0f67-78d7-4580-bf83-b5a0e331de5c",
+      "id": "97fdcddc-0c15-4368-897c-75ff75fbad16",
       "kwargs": {
         "column": "SURFCOND"
       },
@@ -166,7 +169,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "80597f25-577b-4794-9225-b88ecda1c3e5",
+      "id": "3a69db90-f042-46d0-8eb9-36fb287efdab",
       "kwargs": {
         "column": "SURFCOND",
         "value_set": [
@@ -191,7 +194,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "fab63364-e293-4b0e-9b57-ea3e72677619",
+      "id": "113b9a8c-178c-41b8-b0a6-3817b8768bc2",
       "kwargs": {
         "column": "LIGHTING"
       },
@@ -202,7 +205,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "aeef87d1-e62d-4da7-b095-ec4104c6d1e6",
+      "id": "c7e4afeb-327f-4631-b552-13d5d70b842c",
       "kwargs": {
         "column": "LIGHTING",
         "value_set": [
@@ -223,7 +226,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "301978fc-9b33-4be0-8f84-0cbfd4f2013c",
+      "id": "bc695a6b-08bd-4879-b281-1b9c8c65e859",
       "kwargs": {
         "column": "SPEEDLIMIT",
         "mostly": 0.989
@@ -235,14 +238,17 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "ed59d4ae-2c70-444d-950e-4c1a5ad00589",
+      "id": "69b2d99d-0fc9-4d84-83de-4fc3d1ddd082",
       "kwargs": {
         "column": "SPEEDLIMIT",
         "condition_parser": "pandas",
         "max_value": 98.0,
         "min_value": 0.0,
         "mostly": 0.989,
-        "row_condition": "SPEEDLIMIT != 99"
+        "row_condition": {
+          "pass_through_filter": "SPEEDLIMIT != 99",
+          "type": "pass_through"
+        }
       },
       "meta": {
         "rule": "SPEEDLIMIT_range"
@@ -251,7 +257,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "cdd2ee96-66f1-44db-9676-3ffa8210de70",
+      "id": "0d5152be-db13-42ec-9caa-3b0bfe06d13f",
       "kwargs": {
         "column": "RDNUMLANES"
       },
@@ -262,7 +268,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "5970d4b4-7388-4493-98cf-684618e5f9ea",
+      "id": "bf847af7-5330-441c-8fee-5b9584c958a7",
       "kwargs": {
         "column": "RDNUMLANES",
         "max_value": 6.0,
@@ -275,7 +281,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "61413a60-fc58-4fb6-9a44-fada0532d460",
+      "id": "82874f6f-e3e8-4398-907b-bd1f7f4d1470",
       "kwargs": {
         "column": "RDWIDTH"
       },
@@ -286,7 +292,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "7889d6e5-55ac-4eaa-a78e-6357ab7985f5",
+      "id": "9a2303e4-e15d-4bbd-a818-25cc4a5335d7",
       "kwargs": {
         "column": "RDWIDTH",
         "max_value": 80.0,
@@ -299,7 +305,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "bb5d291d-9616-4e89-8e0f-41e9f4bef87b",
+      "id": "2fcb3ce2-b344-4fb0-96f2-f0da7ff5e8d8",
       "kwargs": {
         "column": "ROUTECLASS"
       },
@@ -310,7 +316,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "0af84e80-3621-4067-ac3f-274b2082914f",
+      "id": "810a0e34-4b33-403a-ab16-5865c38d9968",
       "kwargs": {
         "column": "ROUTECLASS",
         "value_set": [
@@ -331,7 +337,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "8893a42d-cb5b-4217-ace5-5499374dfa46",
+      "id": "bd7818f3-069f-4306-850f-27eba41326b1",
       "kwargs": {
         "column": "TRUNKLINE"
       },
@@ -342,7 +348,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "1b289abe-b2ae-4dce-9583-cde4cd879abc",
+      "id": "bf4ff9cf-9b52-42ed-8322-47169c162e9c",
       "kwargs": {
         "column": "TRUNKLINE",
         "value_set": [
@@ -357,7 +363,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "df935b86-2441-45cc-b30e-521cab4969e0",
+      "id": "52a41a75-8bf7-4de8-928f-3539c4078d0a",
       "kwargs": {
         "column": "RDSUBTYPE"
       },
@@ -368,7 +374,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "90ce2be2-a1b2-4428-9d76-917c8c5150f7",
+      "id": "bd69a876-31ff-460e-a356-a4e577bce7d4",
       "kwargs": {
         "column": "RDSUBTYPE",
         "value_set": [
@@ -390,7 +396,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "676406e7-fd16-4f5c-845a-8cf499a805bc",
+      "id": "1ee9cab8-2629-4c1a-bfa9-d1e8bee22bd4",
       "kwargs": {
         "column": "DRIVER1AGE",
         "mostly": 0.85
@@ -402,14 +408,17 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "c62edf1a-3888-46ef-a919-dbc4cbe1bfb0",
+      "id": "20278b8d-7c11-4cb5-8ed0-b8b08f186a0d",
       "kwargs": {
         "column": "DRIVER1AGE",
         "condition_parser": "pandas",
         "max_value": 100.0,
         "min_value": 0.0,
         "mostly": 0.85,
-        "row_condition": "DRIVER1AGE != 999"
+        "row_condition": {
+          "pass_through_filter": "DRIVER1AGE != 999",
+          "type": "pass_through"
+        }
       },
       "meta": {
         "rule": "DRIVER1AGE_range"
@@ -418,7 +427,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "12b237f0-c48a-4560-8121-4ca282f44c52",
+      "id": "8cb39182-83b2-4f22-b5ed-088785627c1d",
       "kwargs": {
         "column": "DRIVER1SEX"
       },
@@ -429,7 +438,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "371f2792-a150-45ad-96db-942a5f7d4503",
+      "id": "c2c3e9f1-e78f-4032-b95e-5d44b3e6ab1f",
       "kwargs": {
         "column": "DRIVER1SEX",
         "value_set": [
@@ -445,7 +454,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "a14dddd6-5d02-4bcc-b6a4-d60fab322aab",
+      "id": "fe132257-57a1-44c3-ac2d-30e68889de0f",
       "kwargs": {
         "column": "DRIVER2AGE",
         "mostly": 0.65
@@ -457,14 +466,17 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "31a3e726-98a7-4b8c-a679-e7bc96aead60",
+      "id": "1542a95a-28c7-40a1-855a-576a880c471f",
       "kwargs": {
         "column": "DRIVER2AGE",
         "condition_parser": "pandas",
         "max_value": 100.0,
         "min_value": 0.0,
         "mostly": 0.65,
-        "row_condition": "DRIVER2AGE != 999"
+        "row_condition": {
+          "pass_through_filter": "DRIVER2AGE != 999",
+          "type": "pass_through"
+        }
       },
       "meta": {
         "rule": "DRIVER2AGE_range"
@@ -473,7 +485,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "9a54753e-1799-4cd1-a7db-dc64220d6069",
+      "id": "f19ea9e5-7082-4228-b15a-1aeb89d9090c",
       "kwargs": {
         "column": "DRIVER2SEX"
       },
@@ -484,7 +496,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "43b7f8df-854e-44c8-a7f4-fb5caadaeef6",
+      "id": "23c5dffc-988f-4eae-99af-da36871ea2c0",
       "kwargs": {
         "column": "DRIVER2SEX",
         "value_set": [
@@ -500,7 +512,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "0d45a427-9dc4-4f05-ac51-c711736726a3",
+      "id": "2e63796b-69cc-4d21-bab6-a80db05d5ceb",
       "kwargs": {
         "column": "VEH1TYPE"
       },
@@ -511,7 +523,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "231e4e48-5902-4823-a11a-d97c567c2c03",
+      "id": "26a3be59-d0ad-4259-a3ca-f5d00949a311",
       "kwargs": {
         "column": "VEH1TYPE",
         "value_set": [
@@ -535,7 +547,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "60b33e4d-5106-4488-973f-e51ef837a008",
+      "id": "766d2464-219e-464f-bc72-33b13572697d",
       "kwargs": {
         "column": "VEH1USE"
       },
@@ -546,7 +558,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "a0b3b3af-6ae8-4680-a882-5a244462f660",
+      "id": "9ecfb45e-edd5-4016-b704-78748bb070b2",
       "kwargs": {
         "column": "VEH1USE",
         "value_set": [
@@ -571,7 +583,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "bc95193b-11d2-46e5-ab3e-137e7640222a",
+      "id": "39bd80b6-9daf-484d-b31e-96ea08cfd822",
       "kwargs": {
         "column": "VEH2TYPE"
       },
@@ -582,7 +594,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "9671ec7b-79b2-4b17-93f3-de909e0164c1",
+      "id": "a808fa82-5288-4012-8ecf-cb83c159b980",
       "kwargs": {
         "column": "VEH2TYPE",
         "value_set": [
@@ -607,7 +619,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "04c39666-2237-4b80-9e20-6b69d083611f",
+      "id": "323cc062-f239-40ea-945c-c61137766138",
       "kwargs": {
         "column": "VEH2USE"
       },
@@ -618,7 +630,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "a73c5092-59d8-4ec3-af7f-834ae1ec8acc",
+      "id": "2f91ee7c-fa9c-4519-b7d3-da98d4f89ff4",
       "kwargs": {
         "column": "VEH2USE",
         "value_set": [
@@ -643,7 +655,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "3c86dca4-cd9e-4100-98d5-bdecb54b3ef8",
+      "id": "96cf1f7a-fedf-468e-8585-03ee4158d378",
       "kwargs": {
         "column": "CRASHTYPE"
       },
@@ -654,7 +666,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "b54eb795-2f09-4968-bb0f-258280363a78",
+      "id": "c26b3ebf-4f88-4afa-969e-17146bd523be",
       "kwargs": {
         "column": "CRASHTYPE",
         "value_set": [
@@ -690,7 +702,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "0866c505-8def-461d-8221-d3e65e4892fb",
+      "id": "aac1a659-fd19-4f5f-85db-02b6948b3525",
       "kwargs": {
         "column": "TRAFCTLDEV",
         "mostly": 0.4
@@ -702,7 +714,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "7f40b68f-a3e3-4b2a-9ebf-fe68b4111d25",
+      "id": "713d7e81-7e09-4802-87ef-5462417301a0",
       "kwargs": {
         "column": "TRAFCTLDEV",
         "mostly": 0.4,
@@ -721,7 +733,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "ad20178a-4fd1-4578-b046-48f19ff93c1e",
+      "id": "da4e0fbc-a836-460a-a7fd-89f6fe4fe276",
       "kwargs": {
         "column": "NONTRAFFIC"
       },
@@ -732,7 +744,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "1187599b-e249-497c-ae71-3b7df1e7aab2",
+      "id": "3de5bc0f-0266-49cf-b3d3-9485d6bbfa8c",
       "kwargs": {
         "column": "NONTRAFFIC",
         "value_set": [
@@ -746,7 +758,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "7ab50890-d09c-485a-bb29-2e5802786d5f",
+      "id": "4cc3ecf8-a01c-4923-b662-c24c6db79922",
       "kwargs": {
         "column": "CRASHSEVER"
       },
@@ -757,7 +769,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "3b93d79d-2c65-4e27-9e36-1899eb5ffaa3",
+      "id": "8b5ae545-d29d-4fa1-b5d3-44c23e3f9e3a",
       "kwargs": {
         "column": "CRASHSEVER",
         "value_set": [
@@ -773,7 +785,7 @@
       "type": "expect_column_values_to_be_in_set"
     },
     {
-      "id": "9aaad4cb-a652-4963-98db-c53457990ecc",
+      "id": "6b58fdb2-82dc-414e-9c51-8302f3289ed3",
       "kwargs": {
         "column": "X"
       },
@@ -784,7 +796,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "90eed6d6-5580-45a6-811e-6e7c66778422",
+      "id": "f18882b0-8b9d-4fe0-850d-bec22949a54c",
       "kwargs": {
         "column": "X",
         "max_value": -85.56,
@@ -797,7 +809,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "6d54e681-3443-4d46-89a2-f6fd72511b16",
+      "id": "5ba570d5-4f42-4aa6-b3a1-152c13c479e4",
       "kwargs": {
         "column": "Y"
       },
@@ -808,7 +820,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "b514f021-8557-4854-ab5e-3419ea88c8c2",
+      "id": "a36ae5f0-b2c3-4873-8214-cc1715c4670f",
       "kwargs": {
         "column": "Y",
         "max_value": 43.04,
@@ -821,7 +833,7 @@
       "type": "expect_column_values_to_be_between"
     },
     {
-      "id": "11a2dcbf-7c9f-4f56-baeb-2bc7b284bfbe",
+      "id": "da2b86c5-81f8-42c2-ae25-534959faddb6",
       "kwargs": {
         "column": "NUMOFVEHIC"
       },
@@ -832,7 +844,7 @@
       "type": "expect_column_values_to_not_be_null"
     },
     {
-      "id": "9d68cf6d-fbc1-4493-be29-18957b7dccb9",
+      "id": "5acf315a-09dd-4f87-81b1-2ff998b4732f",
       "kwargs": {
         "column": "NUMOFVEHIC",
         "max_value": 12.0,
@@ -849,7 +861,7 @@
   "meta": {
     "asset": "crash_data_asset",
     "datasource": "crash_data",
-    "great_expectations_version": "1.6.4"
+    "great_expectations_version": "1.17.0"
   },
   "name": "crash_data_suite",
   "notes": null

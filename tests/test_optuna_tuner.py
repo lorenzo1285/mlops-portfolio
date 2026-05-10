@@ -41,6 +41,7 @@ def mlflow_cfg():
         experiment_name_dl="crash-severity-dl",
         experiment_name_vae="crash-severity-vae",
         experiment_name_tune="crash-severity-tune",
+        experiment_name_gmm="crash-severity-gmm",
         model_name="crash-severity",
     )
 
@@ -385,7 +386,7 @@ class TestOptunaTuner:
             assert result.n_trials == tune_cfg.optuna.n_trials, \
                 f"Expected {tune_cfg.optuna.n_trials} trials, got {result.n_trials}"
 
-    def test_optuna_tuner_fitness_penalised_when_fatal_recall_below_gate(
+    def test_optuna_tuner_fitness_penalised_when_fatal_recall_below_floor(
         self,
         tune_cfg,
         vae_cfg,
@@ -394,7 +395,13 @@ class TestOptunaTuner:
         mock_vae_result,
         mock_encode_result,
     ):
-        """val_fitness = 0.6 * eval_macro_f1 + 0.4 * eval_fatal_recall regardless of recall level."""
+        """val_fitness applies quadratic penalty when fatal recall is below recall_floor.
+
+        Formula: 0.5*f1 + 0.5*recall - max(0, floor - recall)^2 * scale
+        With floor=0.35, scale=4.0, recall=0.30:
+          penalty = (0.05)^2 * 4.0 = 0.01
+          fitness = 0.5*0.70 + 0.5*0.30 - 0.01 = 0.49
+        """
         from src.tune.optuna_tuner import OptunaTuner
 
         low_recall_result = MLTrainResult(
@@ -403,7 +410,7 @@ class TestOptunaTuner:
             best_seed=0,
             eout_macro_f1=0.60,
             eval_macro_f1=0.70,
-            eval_fatal_recall=0.30,  # below 0.50 gate → 50% penalty
+            eval_fatal_recall=0.30,  # below recall_floor (0.35) -> penalty applies
         )
 
         with patch("src.tune.optuna_tuner.DVAETrainer") as MockVAETrainer, \
@@ -431,10 +438,74 @@ class TestOptunaTuner:
 
             result = tuner.tune()
 
-            expected_fitness = 0.6 * 0.70 + 0.4 * 0.30  # 0.54
-            assert abs(result.best_value - expected_fitness) < 1e-6, (
-                f"Expected composite fitness={expected_fitness:.4f} "
-                f"(0.6×0.70 + 0.4×0.30), got {result.best_value:.4f}"
+            recall_floor = tune_cfg.optuna.pruner.recall_floor
+            recall_penalty_scale = tune_cfg.optuna.pruner.recall_penalty_scale
+            penalty = max(0.0, recall_floor - 0.30) ** 2 * recall_penalty_scale
+            expected_fitness = 0.5 * 0.70 + 0.5 * 0.30 - penalty
+            unpenalised = 0.5 * 0.70 + 0.5 * 0.30
+
+            assert result.best_value < unpenalised, (
+                f"Penalised fitness ({result.best_value:.4f}) must be less than "
+                f"unpenalised ({unpenalised:.4f}) when recall < floor"
+            )
+            assert abs(result.best_value - expected_fitness) < 1e-4, (
+                f"Expected penalised fitness={expected_fitness:.4f}, got {result.best_value:.4f}"
+            )
+
+    def test_optuna_tuner_fitness_no_penalty_when_recall_above_floor(
+        self,
+        tune_cfg,
+        vae_cfg,
+        mlflow_cfg,
+        sample_data,
+        mock_vae_result,
+        mock_encode_result,
+    ):
+        """val_fitness = 0.5*f1 + 0.5*recall with no penalty when recall >= recall_floor.
+
+        With eval_macro_f1=0.70, eval_fatal_recall=0.60 (above floor 0.35):
+          fitness = 0.5*0.70 + 0.5*0.60 = 0.65
+        """
+        from src.tune.optuna_tuner import OptunaTuner
+
+        good_recall_result = MLTrainResult(
+            best_run_id="ml-run-good",
+            model_path="models/xgb_seed0.pkl",
+            best_seed=0,
+            eout_macro_f1=0.68,
+            eval_macro_f1=0.70,
+            eval_fatal_recall=0.60,  # above recall_floor (0.35) -> no penalty
+        )
+
+        with patch("src.tune.optuna_tuner.DVAETrainer") as MockVAETrainer, \
+             patch("src.tune.optuna_tuner.LatentEncoder") as MockEncoder, \
+             patch("src.tune.optuna_tuner.MLTrainer") as MockMLTrainer:
+
+            mock_vae_trainer = MagicMock()
+            mock_vae_trainer.train.return_value = mock_vae_result
+            MockVAETrainer.return_value = mock_vae_trainer
+
+            mock_encoder = MagicMock()
+            mock_encoder.encode.return_value = mock_encode_result
+            MockEncoder.return_value = mock_encoder
+
+            mock_ml_trainer = MagicMock()
+            mock_ml_trainer.train.return_value = good_recall_result
+            MockMLTrainer.return_value = mock_ml_trainer
+
+            tuner = OptunaTuner(
+                tune_config=tune_cfg,
+                vae_config=vae_cfg,
+                mlflow_config=mlflow_cfg,
+                data_dir=sample_data["data_dir"].parent,
+            )
+
+            result = tuner.tune()
+
+            expected_fitness = 0.5 * 0.70 + 0.5 * 0.60  # 0.65 — no penalty
+            assert abs(result.best_value - expected_fitness) < 1e-4, (
+                f"Expected unpenalised fitness={expected_fitness:.4f} "
+                f"(0.5x0.70 + 0.5x0.60), got {result.best_value:.4f}"
             )
 
     def test_optuna_tuner_handles_trial_pruned_gracefully(

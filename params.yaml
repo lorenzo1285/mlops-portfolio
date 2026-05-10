@@ -13,41 +13,36 @@ features:
   sentinel_columns: [DRIVER1AGE, DRIVER2AGE]
 data: {raw_path: data/raw/CGR_Crash_Data.csv, processed_dir: data/processed/, train_size: 0.6,
   val_size: 0.2, test_size: 0.2, random_state: 42, sentinel_value: 999}
-model: {n_classes: 3, n_select: 3, macro_f1_threshold: 0.30, fatal_recall_threshold: 0.50,
-  fatal_threshold: 0.16983967534407593, focal_loss_enabled: true, focal_loss_gamma: 1.4555259980522428}
-dl: {input_dim: 8, hidden_dim: 64, dropout_p: 0.1, epochs: 100, patience: 10, batch_size: 256,
+model: {n_classes: 3, n_select: 3, macro_f1_threshold: 0.3, fatal_recall_threshold: 0.5,
+  fatal_threshold: 0.04196688227206019, focal_loss_enabled: true, focal_loss_gamma: 2.728296095500716}
+dl: {input_dim: 16, hidden_dim: 64, dropout_p: 0.1, epochs: 100, patience: 10, batch_size: 256,
   lr: 0.001, experiment_name: crash-severity-dl, focal_loss_enabled: true, focal_loss_gamma: 2.0}
 vae:
   encoder_dims: [256, 128, 64]
-  latent_dim: 8
+  latent_dim: 16
   beta_start: 0.0
-  beta_max: 0.05611516415334506
-  warmup_epochs: 9
-  dropout_p: 0.2665440364437338
+  beta_max: 0.15304852121831464
+  warmup_epochs: 29
+  dropout_p: 0.2520993370291153
   epochs: 200
   patience: 20
   batch_size: 512
-  lr: 0.00011430983876313228
+  lr: 0.0009239150319627245
   experiment_name: crash-severity-vae
   cyclical_annealing: true
   cycle_epochs: 50
-augment: {tvae_epochs: 500, target_fatal_ratio: 0.2, random_state: 42}
+augment: {tvae_epochs: 500, target_fatal_ratio: 0.15, random_state: 42}
 gmm:
   n_components: {0: 1, 1: 1, 2: 2}
   covariance_type: full
-  reg_covar: 1.0e-6
+  reg_covar: 1.0e-06
   max_iter: 100
   n_init: 5
   fatal_prior_boost: 1.0
   experiment_name: crash-severity-gmm
-mlflow:
-  experiment_name_ml: crash-severity-ml
-  experiment_name_dl: crash-severity-dl
-  experiment_name_gmm: crash-severity-gmm
-  experiment_name_vae: crash-severity-vae
-  experiment_name_tune: crash-severity-tune
-  model_name: crash-severity
-  tracking_uri: mlruns/
+mlflow: {experiment_name_ml: crash-severity-ml, experiment_name_dl: crash-severity-dl,
+  experiment_name_gmm: crash-severity-gmm, experiment_name_vae: crash-severity-vae,
+  experiment_name_tune: crash-severity-tune, model_name: crash-severity, tracking_uri: mlruns/}
 great_expectations: {suite_name: crash_data_suite, datasource_name: crash_data}
 ab_test:
   seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -63,7 +58,7 @@ tune:
     n_trials: 30
     study_name: vae-optuna-hpo
     direction: maximize
-    pruner: {n_startup_trials: 5, n_warmup_steps: 15}
+    pruner: {n_startup_trials: 8, n_warmup_steps: 30, recall_floor: 0.35, recall_penalty_scale: 4.0}
     search_space:
       beta_max_low: 0.01
       beta_max_high: 1.0

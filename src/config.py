@@ -142,6 +142,8 @@ class OptunaSearchSpace:
 class OptunaPrunerConfig:
     n_startup_trials: int = 5
     n_warmup_steps: int = 15
+    recall_floor: float = 0.35
+    recall_penalty_scale: float = 4.0
 
 
 @dataclass

@@ -1,0 +1,39 @@
+# PV + PVC for the kubeflow namespace
+# KFP pipeline pods run in the kubeflow namespace, so the PVC must also live
+# there. We create a second PV (mlops-portfolio-pv-kf) pointing to the same
+# hostPath as mlops-portfolio-pv, then bind a PVC named mlops-portfolio-pvc
+# in the kubeflow namespace to it.
+#
+# Docker Desktop k8s: hostPath PVs sharing the same node path is safe because
+# Docker Desktop runs a single-node cluster and all pods see the same filesystem.
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mlops-portfolio-pv-kf
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    # Docker Desktop on Windows: use /run/desktop/mnt/host/ prefix
+    path: /run/desktop/mnt/host/c/Users/loren/Documents/mlops-portfolio
+    type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlops-portfolio-pvc
+  namespace: kubeflow
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: manual
+  volumeName: mlops-portfolio-pv-kf

@@ -6,6 +6,12 @@
       "sourceType": "github",
       "computedHash": "4dd93bbc245dbec9dd18504a82b864b5d70776ac8d8abd09b1796d299a3e627e"
     },
+    "caveman": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "skillPath": "skills/productivity/caveman/SKILL.md",
+      "computedHash": "536908fcfcb232600a5875aa85f1fd50fd13305e9d67379bcd95f07c8c916f3f"
+    },
     "caveman-review": {
       "source": "juliusbrussee/caveman",
       "sourceType": "github",

@@ -1,14 +1,14 @@
 {
-  "beta_max": 0.05611516415334506,
-  "latent_dim": 8,
-  "warmup_epochs": 9,
-  "lr": 0.00011430983876313228,
-  "dropout_p": 0.2665440364437338,
-  "target_fatal_ratio": 0.2,
-  "fatal_threshold": 0.16983967534407593,
-  "focal_loss_gamma": 1.4555259980522428,
-  "val_fitness": 0.30990659600587855,
+  "beta_max": 0.15304852121831464,
+  "latent_dim": 16,
+  "warmup_epochs": 29,
+  "lr": 0.0009239150319627245,
+  "dropout_p": 0.2520993370291153,
+  "target_fatal_ratio": 0.15,
+  "fatal_threshold": 0.04196688227206019,
+  "focal_loss_gamma": 2.728296095500716,
+  "val_fitness": 0.5515799316232615,
   "n_trials": 30,
-  "winner": "ml",
-  "recall_gate": 0.35
+  "winner": "dl",
+  "recall_gate": 0.5
 }
