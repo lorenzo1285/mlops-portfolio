@@ -110,18 +110,24 @@ stages:
     deps:
       - src/encode/run.py
       - src/encode/encoder.py
+      - src/drift/detector.py
       - src/config.py
+      - src/metrics.py
       - models/vae_encoder.pth
+      - data/processed/X_train.npy
       - data/processed/X_train_augmented.npy
       - data/processed/y_train_augmented.npy
       - data/processed/X_val.npy
       - data/processed/X_test.npy
     params:
       - vae.latent_dim
+      - drift
     outs:
       - data/processed/Z_train_augmented.npy
       - data/processed/Z_val.npy
       - data/processed/Z_test.npy
+      - models/drift_reference.npz
+      - docs/drift_report.json
 
   train_ml:
     cmd: python -m src.train_ml.run

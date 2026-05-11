@@ -211,7 +211,7 @@ Then `select_asset_and_suite()` → `set_batch_definition()` → `pre_validate(d
 - `specs/002-mlops-portfolio/` — active MLOps portfolio spec
   - `spec.md` — feature spec (grill-me reviewed 2026-04-23)
   - `plan.md` — implementation plan (updated 2026-04-29)
-  - `tasks.md` — T001–T121; Phases 1–3D complete; Phase 3E needs revision (encode); Phase 3F T101 done, T102–T103 pending; next entry point: T102/T103
+  - `tasks.md` — T001–T128+; Phases O1–O5 complete (KFP pipeline, Optuna HPO, drift detection); Phase O6 (polish + final validation) in progress
   - `contracts/stage-interface.md` — per-stage env var contracts (updated 2026-04-29)
   - `data-model.md` — entities and artifact registry (updated 2026-04-29)
 

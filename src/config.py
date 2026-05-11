@@ -83,6 +83,13 @@ class EncodeConfig:
 
 
 @dataclass
+class DriftConfig:
+    reference_path: str
+    random_state: int = 42
+    min_ratio: float = 3.0
+
+
+@dataclass
 class AugmentConfig:
     tvae_epochs: int
     target_fatal_ratio: float
@@ -207,6 +214,7 @@ class ProjectConfig:
     tune: TuneConfig
     feature_selection: FeatureSelectionConfig
     great_expectations: GreatExpectationsConfig
+    drift: DriftConfig | None = None
     validation: ValidationConfig = field(default_factory=ValidationConfig)
 
 
@@ -239,6 +247,9 @@ def load_config(path: str | None = None) -> ProjectConfig:
     if "n_components" in gmm_raw:
         gmm_raw["n_components"] = {int(k): v for k, v in gmm_raw["n_components"].items()}
 
+    drift_raw = raw.get("drift")
+    drift = DriftConfig(**drift_raw) if drift_raw is not None else None
+
     return ProjectConfig(
         features=FeaturesConfig(**raw["features"]),
         data=DataConfig(**raw["data"]),
@@ -255,6 +266,7 @@ def load_config(path: str | None = None) -> ProjectConfig:
         ab_test=ABTestConfig(**raw["ab_test"]),
         tune=_load_tune_config(raw["tune"]),
         great_expectations=GreatExpectationsConfig(**raw["great_expectations"]),
+        drift=drift,
         validation=ValidationConfig(
             columns={
                 col: ColumnContract(**spec)

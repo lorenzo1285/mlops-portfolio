@@ -7,22 +7,18 @@ stages:
       hash: md5
       md5: 7d4a042e112c19cceb9fc8b1a69d26c4
       size: 107949687
-      isexec: true
     - path: great_expectations/gx/great_expectations.yml
       hash: md5
-      md5: 603bf3e3cbe2930d312fc7c0b0721f2a
-      size: 3876
-      isexec: true
+      md5: ea935db0c5422a57f0f6548fcf3443ee
+      size: 3973
     - path: src/validate/run.py
       hash: md5
       md5: b2381a25dac59612e15c2b9192667752
       size: 2380
-      isexec: true
     - path: src/validate/validator.py
       hash: md5
       md5: 650d8c209fd5d96334f2c47f82766642
       size: 4771
-      isexec: true
     params:
       params.yaml:
         great_expectations.datasource_name: crash_data
@@ -350,8 +346,8 @@ stages:
       size: 107591014
     - path: src/config.py
       hash: md5
-      md5: 3c8297dcf0f92c89cd584312ada4b41d
-      size: 6676
+      md5: b6c4e8bb4ac867dea54ee9599c482e2e
+      size: 6950
     - path: src/featurize/featurizer.py
       hash: md5
       md5: bd6580ccde9fabf586d46d293817c617
@@ -462,7 +458,7 @@ stages:
       size: 3567008
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 26f6c051c5839afcda6f77bfb9508475
+      md5: 6519ae093c5386e7d7af56023be2c61b
       size: 12571088
     - path: data/processed/X_val.npy
       hash: md5
@@ -474,8 +470,8 @@ stages:
       size: 419160
     - path: src/config.py
       hash: md5
-      md5: 3c8297dcf0f92c89cd584312ada4b41d
-      size: 6676
+      md5: b6c4e8bb4ac867dea54ee9599c482e2e
+      size: 6950
     - path: src/train_vae/run.py
       hash: md5
       md5: 9556d54517a4cb184b6036f4bd7c4d30
@@ -504,11 +500,11 @@ stages:
     outs:
     - path: models/vae_decoder.pth
       hash: md5
-      md5: 8383136a6fe6f1d47399f41ea3876d7d
+      md5: 631337f35ef59dabdfc925412ef67c6b
       size: 209545
     - path: models/vae_encoder.pth
       hash: md5
-      md5: 355b8ebeb461f053b653ff30218c319e
+      md5: 2541d6344988591aef3a5d40c51acbcb
       size: 214283
   encode:
     cmd: python -m src.encode.run
@@ -517,9 +513,13 @@ stages:
       hash: md5
       md5: 8bd04cfdc9de8852561a25a66ec7628a
       size: 3567008
+    - path: data/processed/X_train.npy
+      hash: md5
+      md5: 762b129b49ed75d3943982b60e63106c
+      size: 10700528
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 26f6c051c5839afcda6f77bfb9508475
+      md5: 6519ae093c5386e7d7af56023be2c61b
       size: 12571088
     - path: data/processed/X_val.npy
       hash: md5
@@ -531,36 +531,56 @@ stages:
       size: 419160
     - path: models/vae_encoder.pth
       hash: md5
-      md5: 355b8ebeb461f053b653ff30218c319e
+      md5: 2541d6344988591aef3a5d40c51acbcb
       size: 214283
     - path: src/config.py
       hash: md5
-      md5: 3c8297dcf0f92c89cd584312ada4b41d
-      size: 6676
+      md5: b6c4e8bb4ac867dea54ee9599c482e2e
+      size: 6950
+    - path: src/drift/detector.py
+      hash: md5
+      md5: 0d525650646ad23eb268458e6fba6996
+      size: 6506
     - path: src/encode/encoder.py
       hash: md5
-      md5: 535678f08af1ab284601e3fdab151e2b
-      size: 2434
+      md5: 3909fe441d69ebbbacd38fef75d986d3
+      size: 3939
     - path: src/encode/run.py
       hash: md5
-      md5: dc950b202f259c540231815ba6bcf683
-      size: 2995
+      md5: 5cf1038a0547ed1c4154e983cf56ba37
+      size: 4927
+    - path: src/metrics.py
+      hash: md5
+      md5: d64431fa9e054cb6e846c8033162a6e9
+      size: 4668
     params:
       params.yaml:
+        drift:
+          reference_path: models/drift_reference.npz
+          random_state: 42
+          min_ratio: 3.0
         vae.latent_dim: 16
     outs:
     - path: data/processed/Z_test.npy
       hash: md5
-      md5: 66b2fd5a3250e6a0bc9dd8c95e4c3a83
+      md5: 160227bffcd0c61b23760a39ab140d73
       size: 951296
     - path: data/processed/Z_train_augmented.npy
       hash: md5
-      md5: 2cb635ed321a0321eb77c598c9770a38
+      md5: d50452f2070c50bdad2da33518608351
       size: 3352384
     - path: data/processed/Z_val.npy
       hash: md5
-      md5: 559ce955679d712c0a613b1e46e2f1b0
+      md5: f7291fd30f9397d136e2fabc2502fcd0
       size: 951296
+    - path: docs/drift_report.json
+      hash: md5
+      md5: 2bd8c73aeca84683894e31fbad0b2914
+      size: 154
+    - path: models/drift_reference.npz
+      hash: md5
+      md5: 0026937b135e0d4327ced09bb3155518
+      size: 577388
   augment:
     cmd: python -m src.augment.run
     deps:
@@ -582,8 +602,8 @@ stages:
       size: 3396
     - path: src/config.py
       hash: md5
-      md5: 3c8297dcf0f92c89cd584312ada4b41d
-      size: 6676
+      md5: b6c4e8bb4ac867dea54ee9599c482e2e
+      size: 6950
     params:
       params.yaml:
         augment.random_state: 42
@@ -593,7 +613,7 @@ stages:
     outs:
     - path: data/processed/X_train_augmented.npy
       hash: md5
-      md5: 26f6c051c5839afcda6f77bfb9508475
+      md5: 6519ae093c5386e7d7af56023be2c61b
       size: 12571088
     - path: data/processed/y_train_augmented.npy
       hash: md5

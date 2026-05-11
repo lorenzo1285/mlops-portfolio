@@ -1,4 +1,5 @@
 """Encode stage - Pure projection to latent space (no augmentation)."""
+import json
 import os
 import sys
 
@@ -38,23 +39,33 @@ def main() -> None:
 
         mlflow.set_tracking_uri(mlflow_tracking_uri)
 
+        x_train_path = os.getenv(
+            "X_TRAIN_PATH",
+            os.path.join(config.data.processed_dir, "X_train.npy"),
+        )
+
         # Load arrays
         X_train_augmented = np.load(x_train_aug_path)
         y_train_augmented = np.load(y_train_aug_path)
         X_val = np.load(x_val_path)
         X_test = np.load(x_test_path)
-        
+        X_train = np.load(x_train_path)
+
         print(f"Encode: {len(X_train_augmented)} train (augmented) / {len(X_val)} val / {len(X_test)} test")
         print(f"  Encoder: {encoder_path}")
         print(f"  Latent dim: {config.vae.latent_dim}")
-        
+        if config.drift is not None:
+            print(f"  Drift reference: {config.drift.reference_path}")
+
         # Instantiate encoder and encode splits
+        os.makedirs("models", exist_ok=True)
         encoder = LatentEncoder(
             encoder_path=encoder_path,
             latent_dim=config.vae.latent_dim,
+            drift=config.drift,
         )
-        
-        result = encoder.encode(X_train_augmented, y_train_augmented, X_val, X_test)
+
+        result = encoder.encode(X_train_augmented, y_train_augmented, X_val, X_test, X_train=X_train)
         
         # Save output arrays
         os.makedirs(output_dir, exist_ok=True)
@@ -67,6 +78,39 @@ def main() -> None:
             f"Encode complete: Z_train_augmented {result.Z_train_augmented.shape} | "
             f"Z_val {result.Z_val.shape} | Z_test {result.Z_test.shape}"
         )
+        
+        # Drift detection (advisory signal — never halts pipeline)
+        if config.drift is not None:
+            from src.drift.detector import DriftDetector
+
+            print("Running drift detection on Z_train_augmented (in-distribution self-check)...")
+            detector = DriftDetector(reference_path=config.drift.reference_path)
+            drift_result = detector.detect(result.Z_train_augmented)
+
+            # Log to MLflow
+            with mlflow.start_run(run_name="encode_drift_check"):
+                mlflow.log_metric("drift_mmd", drift_result.mmd)
+                mlflow.log_metric("drift_bandwidth", drift_result.bandwidth)
+                mlflow.log_metric("drift_threshold", drift_result.threshold)
+                mlflow.log_metric("drift_detected", int(drift_result.is_drifted))
+
+            # Write drift report
+            os.makedirs("docs", exist_ok=True)
+            drift_report = {
+                "mmd": float(drift_result.mmd),
+                "bandwidth": float(drift_result.bandwidth),
+                "threshold": float(drift_result.threshold),
+                "drift_detected": int(drift_result.is_drifted),
+                "is_drifted": bool(drift_result.is_drifted),
+            }
+            with open("docs/drift_report.json", "w") as f:
+                json.dump(drift_report, f, indent=2)
+
+            print(
+                f"Drift detection: MMD={drift_result.mmd:.6f}, "
+                f"threshold={drift_result.threshold:.6f}, "
+                f"is_drifted={drift_result.is_drifted}"
+            )
         
         sys.exit(0)
         

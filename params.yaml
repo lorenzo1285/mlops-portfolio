@@ -49,6 +49,10 @@ ab_test:
   alpha: 0.05
   tiebreak: [ml, dl, gmm]
 feature_selection: {method: none, n_features: 10, threshold: 0.95}
+drift:
+  reference_path: models/drift_reference.npz
+  random_state: 42
+  min_ratio: 3.0
 tune:
   experiment_name: vae-hyperparameter-tuning
   max_trials: 15

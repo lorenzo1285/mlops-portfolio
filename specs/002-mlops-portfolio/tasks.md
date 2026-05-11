@@ -512,26 +512,28 @@ eout_fatal_recall > 0.50  AND  eout_macro_f1 > 0.35
        Pipeline run 9w4bl: validate-op→ingest-op→featurize-op all Completed; augment-op Completed and train-vae-op Running concurrently with no lock conflict confirmed.
        train_vae logs ELBO via mlflow.log_metric("vae_elbo", val_elbo, step=epoch) in vae_trainer.py:340.
        train_ml and train_vae tag orchestrator=kubeflow when KFP_POD_NAME env var is set (added to trainer.py and vae_trainer.py). -->
+- [~] T075a ~~**Fix `ml-pipeline-ui` ImagePullBackOff**~~ — **SKIPPED** (portfolio decision). GCR shutdown (May 2025) broke `ml-pipeline-ui`; pipeline confirmed end-to-end via REST API and pod logs (run 9w4bl, all 10 stages); UI is cosmetic for portfolio purposes.
 
 ## 🔜 Phase O5: Monitoring — Latent Space Drift Detection
 
 **Goal**: production drift detected via MMD on Z vectors. Advisory signal — does not halt pipeline.
 
-- [ ] T096 Extend `train_vae` to save drift reference: `models/drift_reference.npz`; add to `dvc.yaml`; add `DriftConfig` to `src/config.py`.
-- [ ] T097 Create `src/drift/detector.py` — `DriftDetector.detect(X_new) → DriftResult`; MMD with RBF kernel.
-- [ ] T098 Extend `src/encode/run.py`: call `DriftDetector`; log `drift_elbo`, `drift_mmd`, `drift_detected`; write `docs/drift_report.json`; exit 0 always.
-- [ ] T099 `uv run dvc repro encode` → `drift_report.json` written; `is_drifted=false` on training data.
+- [x] T096 Add `DriftConfig` to `src/config.py` (`reference_path`, `random_state`, `min_ratio: 3.0`); add `drift:` section to `params.yaml`; add `compute_reference_sample_size()` to `src/metrics.py`; extend `LatentEncoder` (`src/encode/encoder.py`) to save `models/drift_reference.npz` (keys: `Z_ref`, `Z_mean`, `Z_std`, `n_samples`, `latent_dim`) from real `X_train` (pre-augmentation) via `_encode_split` (µ-path reuse, no duplication); add `data/processed/X_train.npy` to `encode` deps and `models/drift_reference.npz` to `encode` outs in `dvc.yaml`; add `drift` to `encode` params list. RED→GREEN: 3 drift boundary tests all pass.
+  - **v3 design**: reference drawn from real `X_train.npy` in encode stage — no CTGAN contamination (v2 defect), no µ-path duplication (v1 defect), no val/test contamination (constitution II). `_save_drift_reference()` reuses existing `_encode_split` verbatim (constitution XIV).
+- [x] T097 Create `src/drift/detector.py` — `DriftDetector(reference_path: str)` loads `drift_reference.npz` at construction; `detect(Z_new: np.ndarray) → DriftResult` computes MMD with RBF kernel between `Z_ref` and `Z_new` (both already in latent space — no encoder access needed); `DriftResult` dataclass: `mmd: float`, `bandwidth: float`, `is_drifted: bool`, `threshold: float`. Bandwidth estimated via median heuristic on `Z_ref`. Threshold: 95th percentile of a permutation null (or fixed heuristic for portfolio). RED test: assert `is_drifted=False` when `Z_new` sampled from same distribution as `Z_ref`; assert `is_drifted=True` when `Z_new` is clearly out-of-distribution.
+- [x] T098 Extend `src/encode/run.py`: instantiate `DriftDetector(config.drift.reference_path)` after encoding; call `detect(Z_train_augmented)` (in-distribution self-check on training data); log `drift_mmd`, `drift_bandwidth`, `drift_threshold`, `drift_detected` (as `int(result.is_drifted)` — MLflow requires numeric); write `docs/drift_report.json` with all four fields plus `is_drifted` bool; exit 0 always (advisory signal — never halts pipeline). Add `docs/drift_report.json` to `encode` stage `outs` in `dvc.yaml`.
+- [x] T099 `uv run dvc repro encode` → `drift_report.json` written; `is_drifted=false` on training data.
 
 > **Loop back here if**: `is_drifted=true` on production data → revisit data contract (D2) and featurize (M1).
 
 ## 🔜 Phase O6: Polish + Final Validation
 
-- [ ] T075 [P] Assert constitutional gates on `docs/evaluation_report.json`.
-- [ ] T076 [P] Update `CLAUDE.md` — architecture table, pipeline description.
-- [ ] T077 [P] Update `.gitignore`.
+- [x] T075 [P] Assert constitutional gates on `docs/evaluation_report.json`.
+- [x] T076 [P] Update `CLAUDE.md` — architecture table, pipeline description.
+- [x] T077 [P] Update `.gitignore`.
 - [ ] T078 Commit all tracked files.
 - [ ] T079 [P] Full reproducibility smoke test: delete `data/processed/` + `models/`; `dvc pull && dvc repro` → all 10 stages complete.
-- [ ] T080 [P] Remove `apache-airflow` from `pyproject.toml` if present; `uv sync`.
+- [x] T080 [P] Remove `apache-airflow` from `pyproject.toml` if present; `uv sync`.
 
 ---
 

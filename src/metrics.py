@@ -59,6 +59,18 @@ def compute_class_weights(y: np.ndarray, n_classes: int) -> np.ndarray:
     return weights
 
 
+def compute_reference_sample_size(
+    n_total: int, n_features: int, min_ratio: float = 3.0
+) -> int:
+    """Minimum reference set size for MMD to have adequate statistical power.
+
+    Returns min(n_total, max(n_features * min_ratio * 100, 1000)).
+    For latent_dim=16, min_ratio=3.0 → 4800 samples (floor 1000, cap n_total).
+    """
+    n_required = int(n_features * min_ratio * 100)
+    return min(n_total, max(n_required, 1000))
+
+
 def focal_loss_grad_hess(
     gamma: float = 2.0,
     alpha: np.ndarray | None = None,

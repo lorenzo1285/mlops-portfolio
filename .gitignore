@@ -63,8 +63,10 @@ data/dvc-remote/
 # Compiled pipeline artifacts
 pipelines/kubeflow/pipeline.yaml
 
-# Numpy arrays (DVC-managed via stage outs)
+# Numpy arrays and model artifacts (DVC-managed via stage outs)
 *.npy
+*.npz
+models/*.joblib
 
 # Great Expectations
 great_expectations/gx/uncommitted/
